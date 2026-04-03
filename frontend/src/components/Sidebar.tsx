@@ -172,24 +172,65 @@ export function Sidebar() {
         {steps.length === 0 && (
           <div className="text-center text-neutral-600 text-sm mt-10">상단에서 세션을 시작하세요</div>
         )}
-        {steps.map(step => (
-          <button
-            key={step.id}
-            onClick={() => triggerStep(step.id)}
-            disabled={isStreaming || isSynthesizing || !sessionId || isRunningAll}
-            className={`text-left text-sm px-3 py-3 rounded-lg flex items-start gap-3 transition
-              ${selectedStepId === step.id ? 'bg-neutral-800 text-white ring-1 ring-neutral-700' : 'text-neutral-400 hover:bg-neutral-800/50'}
-              ${(isStreaming || isSynthesizing || isRunningAll) && selectedStepId !== step.id ? 'opacity-50 cursor-not-allowed' : ''}
-            `}
-          >
-            <div className="mt-0.5 shrink-0">
-              {step.status === 'DONE' && <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" />}
-              {step.status === 'WORKING' && <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.6)]" />}
-              {step.status === 'PENDING' && <div className="w-2 h-2 rounded-full bg-neutral-700" />}
-            </div>
-            <span className="leading-snug">{step.name}</span>
-          </button>
-        ))}
+        {(() => {
+          const doneCount = steps.filter(s => s.status === 'DONE').length;
+          const resumeStep = steps.find(s => s.status !== 'DONE');
+          const hasPartial = doneCount > 0 && doneCount < steps.length && !isRunningAll && !isStreaming;
+
+          return (
+            <>
+              {hasPartial && (
+                <div className="mx-1 mb-2 px-3 py-2 rounded-lg bg-amber-950/40 border border-amber-800/50 text-amber-300 text-xs flex items-start gap-2">
+                  <span className="shrink-0 mt-0.5">⏸</span>
+                  <div>
+                    <div className="font-semibold mb-0.5">{doneCount}/{steps.length}단계 완료 — 중단됨</div>
+                    <div className="text-amber-400/70">
+                      {resumeStep ? `"${resumeStep.name}"부터 이어서 실행하려면 Run All을 누르세요.` : ''}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {steps.map((step, idx) => {
+                const isResumePoint = hasPartial && step.id === resumeStep?.id;
+                return (
+                  <div key={step.id}>
+                    {isResumePoint && (
+                      <div className="flex items-center gap-2 px-3 py-1 text-[10px] text-amber-500/70 uppercase tracking-wider">
+                        <div className="flex-1 h-px bg-amber-800/40" />
+                        <span>여기서 재개</span>
+                        <div className="flex-1 h-px bg-amber-800/40" />
+                      </div>
+                    )}
+                    <button
+                      onClick={() => triggerStep(step.id)}
+                      disabled={isStreaming || isSynthesizing || !sessionId || isRunningAll}
+                      className={`w-full text-left text-sm px-3 py-3 rounded-lg flex items-start gap-3 transition
+                        ${selectedStepId === step.id ? 'bg-neutral-800 text-white ring-1 ring-neutral-700' : 'text-neutral-400 hover:bg-neutral-800/50'}
+                        ${(isStreaming || isSynthesizing || isRunningAll) && selectedStepId !== step.id ? 'opacity-50 cursor-not-allowed' : ''}
+                        ${step.status === 'DONE' && hasPartial ? 'opacity-60' : ''}
+                      `}
+                    >
+                      <div className="mt-0.5 shrink-0">
+                        {step.status === 'DONE' && <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" />}
+                        {step.status === 'WORKING' && <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.6)]" />}
+                        {step.status === 'PENDING' && <div className="w-2 h-2 rounded-full bg-neutral-700" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="leading-snug">{step.name}</span>
+                        {step.status === 'DONE' && (
+                          <span className="ml-2 text-[10px] text-green-500/60">완료</span>
+                        )}
+                      </div>
+                      {isResumePoint && !isStreaming && !isRunningAll && (
+                        <span className="shrink-0 text-[10px] text-amber-400 font-semibold">재개 ▶</span>
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+            </>
+          );
+        })()}
       </div>
     </aside>
   );

@@ -93,12 +93,21 @@ export function Header() {
     if (!sessionId || steps.length === 0) return;
     if (isStreaming || isSynthesizing) return;
 
-    setIsRunningAll(true);
-    toast('전체 자동 실행을 시작합니다...', { icon: '🚀' });
+    // 완료되지 않은 첫 번째 단계부터 시작 (DONE 이후 재개 지원)
+    const firstPending = steps.find(s => s.status !== 'DONE');
+    if (!firstPending) {
+      toast('모든 단계가 이미 완료되어 있습니다.', { icon: '✅' });
+      return;
+    }
 
-    // 첫 번째 단계를 pendingStepId로 트리거
-    // 이후 각 단계 완료 → Workspace의 approveAndNext → setPendingStepId(next) 자동 연쇄
-    setPendingStepId(steps[0].id);
+    const doneCount = steps.filter(s => s.status === 'DONE').length;
+    const resumeMsg = doneCount > 0
+      ? `${doneCount}단계 완료됨 — ${firstPending.id}단계부터 이어서 실행합니다...`
+      : '전체 자동 실행을 시작합니다...';
+
+    setIsRunningAll(true);
+    toast(resumeMsg, { icon: doneCount > 0 ? '▶️' : '🚀' });
+    setPendingStepId(firstPending.id);
   };
 
   const restoreSession = async (sess: {session_id: string; domain: string}) => {
