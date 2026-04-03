@@ -117,8 +117,22 @@ export function Workspace() {
             />
           ) : (
             <div ref={scrollRef} className="flex-1 p-8 overflow-y-auto break-words relative scroll-smooth custom-scrollbar">
-              {selectedStep.status === 'PENDING' && (
-                <div className="text-neutral-600 italic font-mono flex items-center gap-2">선택 대기 중...</div>
+              {selectedStep.status === 'PENDING' && !isStreaming && (
+                <div className="flex flex-col items-center justify-center py-16 gap-4">
+                  <div className="text-neutral-700 text-5xl mb-2">▶</div>
+                  <p className="text-neutral-400 font-semibold text-lg">{selectedStep.name}</p>
+                  <p className="text-neutral-600 text-sm">아직 실행되지 않은 단계입니다.</p>
+                  <button
+                    onClick={() => {
+                      const { setPendingStepId, sessionId: sid } = useWorkflowStore.getState();
+                      if (sid) setPendingStepId(selectedStep.id);
+                    }}
+                    disabled={isStreaming || isSynthesizing || !sessionId}
+                    className="mt-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition text-sm flex items-center gap-2"
+                  >
+                    ▶ 이 단계 실행하기
+                  </button>
+                </div>
               )}
 
               <div className="prose prose-invert prose-base max-w-none prose-p:leading-relaxed prose-pre:bg-neutral-900 prose-pre:border prose-pre:border-neutral-800 prose-headings:text-neutral-200">
