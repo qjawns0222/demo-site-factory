@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(git clone:*)",
+      "Read(//c/Users/c/.agents/skills/gstack/**)",
+      "Bash(./setup)",
+      "Bash(export BUN_INSTALL=\"$HOME/.bun\")",
+      "Bash(export PATH=\"$BUN_INSTALL/bin:$PATH\")",
+      "Bash(bash:*)",
+      "Bash(python3 -c \"import json,sys; print\\('ok'\\)\")",
+      "Bash(python -c \"import json,sys; print\\('ok'\\)\")",
+      "Skill(plan-ceo-review)",
+      "WebSearch",
+      "WebFetch(domain:ai.google.dev)",
+      "Bash(docker-compose up:*)",
+      "Bash(npx skills:*)",
+      "Bash(docker-compose down:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker --version)",
+      "Bash(docker-compose --version)",
+      "Bash(gh --version)",
+      "Bash(gh auth:*)"
+    ]
+  }
+}
