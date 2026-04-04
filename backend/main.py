@@ -177,15 +177,15 @@ async def list_sessions():
     return {"sessions": sessions}
 
 STEP_NAMES = {
-    1: "시스템 아키텍처 및 데이터 흐름 설계",
-    2: "프로젝트 폴더 구조 설계",
-    3: "명세서 및 인터페이스 설계",
-    4: "프론트엔드 구현",
-    5: "백엔드 API 구현",
-    6: "오류 복원 자동 QA",
-    7: "데이터베이스 스키마 설계",
-    8: "배포 및 인프라 설계",
-    9: "종합 검토 및 최적화",
+    1: "기능 분석 및 정보 아키텍처",
+    2: "UI/UX 비주얼 설계 및 레이아웃 명세",
+    3: "에셋 목록 및 배치 전략",
+    4: "URL 구조 및 라우팅 설계",
+    5: "데이터 모델 및 API 설계",
+    6: "컴포넌트 및 서비스 레이어 구현 명세",
+    7: "데모용 시드 데이터 설계",
+    8: "구현 리스크 및 의존성 지도",
+    9: "데모 시나리오 및 시연 큐시트",
 }
 
 @app.get("/api/workflow")
@@ -216,6 +216,25 @@ async def get_workflow():
         ]
 
     return {"steps": steps}
+
+@app.get("/api/session/{session_id}/steps")
+async def get_session_steps(session_id: str):
+    domain = await redis_client.get(f"session_meta:{session_id}:domain")
+    if not domain:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+
+    # 모든 step content를 Redis에서 한 번에 가져오기
+    pipe = redis_client.pipeline()
+    for step_id in range(1, 10):
+        pipe.get(f"session:{session_id}:step:{step_id}")
+    results = await pipe.execute()
+
+    steps = {}
+    for i, content in enumerate(results, start=1):
+        if content:
+            steps[i] = content
+
+    return {"session_id": session_id, "domain": domain, "steps": steps}
 
 class SynthesizeRequest(BaseModel):
     content: str = Field(...)

@@ -85,6 +85,7 @@ export function Sidebar() {
         }
 
         if (nextStep) {
+          await new Promise(resolve => setTimeout(resolve, 5000));
           setPendingStepId(nextStep.id);
         } else {
           // 마지막 단계 완료

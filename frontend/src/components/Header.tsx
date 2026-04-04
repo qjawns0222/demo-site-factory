@@ -15,7 +15,59 @@ export function Header() {
 
   const [sessions, setSessions] = useState<{session_id: string; domain: string}[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
   const historyRef = useRef<HTMLDivElement>(null);
+
+  // sessionId가 바뀌면 localStorage에 저장
+  useEffect(() => {
+    if (sessionId) {
+      localStorage.setItem('demo_session_id', sessionId);
+      localStorage.setItem('demo_domain', domain);
+    }
+  }, [sessionId, domain]);
+
+  // 페이지 로드 시 localStorage에서 세션 복구
+  useEffect(() => {
+    const savedId = localStorage.getItem('demo_session_id');
+    const savedDomain = localStorage.getItem('demo_domain');
+    if (!savedId || !savedDomain) return;
+
+    setIsRestoring(true);
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/session/${savedId}/steps`);
+        if (!res.ok) {
+          localStorage.removeItem('demo_session_id');
+          localStorage.removeItem('demo_domain');
+          return;
+        }
+        const data = await res.json();
+
+        const wfRes = await fetch(`${API_URL}/api/workflow`);
+        const wfData = await wfRes.json();
+        if (!wfData.steps) return;
+
+        const restoredSteps = wfData.steps.map((s: any) => ({
+          ...s,
+          status: data.steps[s.id] ? 'DONE' : 'PENDING',
+          content: data.steps[s.id] || '',
+        }));
+
+        setSteps(restoredSteps);
+        setDomain(savedDomain);
+        setSessionId(savedId);
+        const doneCount = restoredSteps.filter((s: any) => s.status === 'DONE').length;
+        if (doneCount > 0) {
+          toast(`세션 복구됨: ${savedDomain} (${doneCount}단계 완료)`, { icon: '🔄' });
+        }
+      } catch {
+        // 복구 실패 시 무시
+      } finally {
+        setIsRestoring(false);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 히스토리 드롭다운 외부 클릭 시 닫기
   useEffect(() => {
@@ -58,6 +110,8 @@ export function Header() {
       const res = await fetch(`${API_URL}/api/session/${sessionId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('API 오류');
       resetAll();
+      localStorage.removeItem('demo_session_id');
+      localStorage.removeItem('demo_domain');
       toast.success('세션이 완전 초기화되었습니다.');
       fetchWorkflow();
     } catch {
@@ -119,19 +173,33 @@ export function Header() {
 
     resetAll();
     setDomain(sess.domain);
+    setShowHistory(false);
 
-    // 워크플로우 가져오기
     try {
-      const res = await fetch(`${API_URL}/api/workflow`);
-      const data = await res.json();
-      if (data.steps) {
-        setSteps(data.steps.map((s: any) => ({ ...s, status: 'PENDING', content: '' })));
+      const [wfRes, stepsRes] = await Promise.all([
+        fetch(`${API_URL}/api/workflow`),
+        fetch(`${API_URL}/api/session/${sess.session_id}/steps`),
+      ]);
+      const wfData = await wfRes.json();
+      const stepsData = stepsRes.ok ? await stepsRes.json() : { steps: {} };
+
+      if (wfData.steps) {
+        const restoredSteps = wfData.steps.map((s: any) => ({
+          ...s,
+          status: stepsData.steps[s.id] ? 'DONE' : 'PENDING',
+          content: stepsData.steps[s.id] || '',
+        }));
+        setSteps(restoredSteps);
+        const doneCount = restoredSteps.filter((s: any) => s.status === 'DONE').length;
+        toast.success(`세션 복원: ${sess.domain}${doneCount > 0 ? ` (${doneCount}단계 완료)` : ''}`);
       }
-    } catch {}
+    } catch {
+      toast.error('세션 복원 중 오류 발생');
+    }
 
     setSessionId(sess.session_id);
-    setShowHistory(false);
-    toast.success(`세션 복원: ${sess.domain}`);
+    localStorage.setItem('demo_session_id', sess.session_id);
+    localStorage.setItem('demo_domain', sess.domain);
   };
 
   const handleExportZip = () => {
@@ -144,7 +212,7 @@ export function Header() {
     window.open(`${API_URL}/api/preview/${sessionId}`, '_blank');
   };
 
-  const isBusy = isStreaming || isSynthesizing || isRunningAll;
+  const isBusy = isStreaming || isSynthesizing || isRunningAll || isRestoring;
 
   return (
     <header className="border-b border-neutral-800 bg-neutral-900 p-4 shrink-0">
@@ -266,8 +334,13 @@ export function Header() {
         </div>
       </div>
 
+      {/* 복구 중 표시 */}
+      {isRestoring && (
+        <div className="mt-2 text-[11px] text-amber-400 animate-pulse">⏳ 이전 세션 복구 중...</div>
+      )}
+
       {/* 모드 표시 (세션 진행 중) */}
-      {sessionId && (
+      {sessionId && !isRestoring && (
         <div className="mt-2 flex items-center gap-2 text-[11px] text-neutral-500">
           <span>모드:</span>
           <span className={generationMode === 'code' ? 'text-emerald-400 font-bold' : 'text-blue-400 font-bold'}>
