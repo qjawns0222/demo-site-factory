@@ -457,23 +457,37 @@ async def export_zip(session_id: str):
     )
 
 async def _build_preview_html(session_id: str, domain: str, user_requirements: str = "") -> str:
-    """spec 수집 → Gemini 호출 → HTML 반환 (캐싱 없음, 순수 생성)"""
-    keys = await redis_scan_keys(f"session:{session_id}:step:*")
-    keys_sorted = sorted(
-        [k for k in keys if int(k.split(":")[-1]) < 100],
-        key=lambda k: int(k.split(":")[-1])
-    )
-
-    spec_parts = []
-    for key in keys_sorted:
-        content = await redis_client.get(key)
-        if not content:
-            continue
-        step_num = key.split(":")[-1]
-        step_name = STEP_NAMES.get(int(step_num), f"단계 {step_num}")
-        spec_parts.append(f"=== {step_name} ===\n{content}")
-
-    spec_text = "\n\n".join(spec_parts)
+    """spec 수집 → Gemini 호출 → HTML 반환 (캐싱 없음, 순수 생성)
+    비용 최적화: 전체 step 텍스트 대신 synthesize된 context_history 요약만 사용
+    """
+    # context_history: 각 단계 synthesize 결과 요약 (전체 텍스트보다 ~70% 적은 토큰)
+    context_history_str = await redis_client.get(f"session:{session_id}:context_history")
+    if context_history_str:
+        context_history = json.loads(context_history_str)
+        spec_parts = []
+        for entry in context_history:
+            step_id = entry.get("step_id", "?")
+            step_name = STEP_NAMES.get(int(step_id), f"단계 {step_id}")
+            summary = entry.get("summary", "")
+            context = entry.get("context", "")
+            spec_parts.append(f"=== {step_name} ===\n{summary}\n{context}".strip())
+        spec_text = "\n\n".join(spec_parts)
+    else:
+        # fallback: context_history 없으면 step 원문 사용
+        keys = await redis_scan_keys(f"session:{session_id}:step:*")
+        keys_sorted = sorted(
+            [k for k in keys if int(k.split(":")[-1]) < 100],
+            key=lambda k: int(k.split(":")[-1])
+        )
+        spec_parts = []
+        for key in keys_sorted:
+            content = await redis_client.get(key)
+            if not content:
+                continue
+            step_num = key.split(":")[-1]
+            step_name = STEP_NAMES.get(int(step_num), f"단계 {step_num}")
+            spec_parts.append(f"=== {step_name} ===\n{content}")
+        spec_text = "\n\n".join(spec_parts)
 
     if DUMMY_MODE:
         return f"""<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>{domain} — Demo</title>
@@ -515,7 +529,15 @@ async def _build_preview_html(session_id: str, domain: str, user_requirements: s
 - 단순히 "항목 1", "사용자 A" 같은 무의미한 데이터 금지
 - 실제 서비스처럼 보이는 이름, 날짜, 금액, 상태값, 설명문 포함
 - 데이터는 JavaScript 배열/객체로 정의하고 렌더링 함수로 화면에 표시
-- 예시 (chat-service라면): `{{id:1, name:"김민준", lastMsg:"안녕하세요!", time:"오전 10:23", unread:3, status:"online"}}`
+- **반드시 `DOMContentLoaded` 또는 `window.onload`에서 렌더링 함수를 즉시 호출**해 초기 화면에 데이터가 표시되게 할 것
+- 예시 패턴:
+  ```
+  const items = [{{id:1, name:"김민준", ...}}, ...];
+  function renderItems(list) {{ /* DOM에 카드/행 생성 */ }}
+  document.addEventListener('DOMContentLoaded', () => {{ renderItems(items); }});
+  ```
+- 페이지 첫 로드 시 메인 콘텐츠 영역이 **절대 비어있으면 안 됨** — 더미 데이터가 즉시 보여야 함
+- 예시 (trend-service라면): `{{id:1, title:"K-팝 해외 반응 폭발", category:"Pop Culture", sentiment:"긍정", views:48200, saved:312, date:"2026-04-03"}}`
 
 ## UI/UX 품질 기준 (반드시 준수)
 
@@ -534,6 +556,18 @@ async def _build_preview_html(session_id: str, domain: str, user_requirements: s
 - 모든 버튼은 클릭 시 **즉각적이고 눈에 보이는 반응** (상태 변경, 모달 열림, 데이터 갱신 등)
 - 폼 제출 버튼은 **유효성 검사 후 성공 메시지 표시** + 목록에 실제로 추가
 - 검색/필터는 **더미 데이터를 실제로 필터링**해서 결과 갱신
+
+### select/dropdown 규칙 (절대 위반 금지)
+- `<select>` 또는 드롭다운을 사용할 때는 **반드시 실제 선택 가능한 `<option>` 항목을 최소 3개 이상** 하드코딩
+- `<option value="">선택하세요</option>` 같은 placeholder만 있고 실제 선택지가 없는 select 금지
+- 예: 카테고리 select라면 `<option value="food">음식</option><option value="tech">기술</option>` 등 실제 값 포함
+- select 값에 의존하는 폼 제출 로직은 선택지가 없을 때 제출 불가가 되므로 반드시 선택지를 채울 것
+
+### 모달 닫기 규칙 (절대 위반 금지)
+- **모든 모달/팝업/다이얼로그에는 반드시 닫기 버튼(×)이 있어야 함**
+- 닫기 버튼 예시: `<button onclick="closeModal()" class="...">×</button>`
+- 모달 열기 함수와 닫기 함수를 항상 쌍으로 구현: `openModal()` / `closeModal()`
+- 모달 외부 배경(overlay) 클릭 시에도 닫힘 동작 추가
 
 ### 상태 관리 규칙
 - 각 인터랙티브 요소의 상태를 JavaScript 변수로 명시적 관리
@@ -557,6 +591,7 @@ async def _build_preview_html(session_id: str, domain: str, user_requirements: s
 ## 코드 품질 체크리스트 (출력 전 반드시 자가 검증)
 
 - [ ] 더미 데이터가 최소 12개 이상 있고 현실적인가?
+- [ ] `DOMContentLoaded`에서 렌더링 함수를 즉시 호출해 초기 화면이 비어있지 않은가?
 - [ ] 모든 모달이 초기에 **닫힌 상태** (display:none)인가?
 - [ ] 모든 닫기(×) 버튼에 `onclick` 핸들러가 **반드시 붙어있는가**?
 - [ ] 모든 탭/메뉴 클릭이 **실제 콘텐츠를 show/hide** 전환하는가?
@@ -565,13 +600,17 @@ async def _build_preview_html(session_id: str, domain: str, user_requirements: s
 - [ ] console.error가 발생할 null 참조 (`getElementById` 결과 없음 등)가 없는가?
 - [ ] 이벤트 리스너 중복 등록이 없는가?
 - [ ] **모든 버튼이 클릭 시 즉각적이고 눈에 보이는 반응**을 하는가?
+- [ ] 모든 `<select>`에 실제 선택 가능한 `<option>`이 최소 3개 이상 있는가?
+- [ ] 모든 모달/팝업에 닫기(×) 버튼이 있고 `onclick`으로 실제 닫히는가?
 
 ## 출력 형식
 
 반드시 완전한 HTML 파일만 출력하세요.
 설명, 주석 블록, 마크다운 코드블록(```) 없이 정확히 <!DOCTYPE html>로 시작하고 </html>로 끝내세요."""
 
-    model = genai.GenerativeModel(GEMINI_MODEL)
+    # 비용 최적화: preview 생성은 1.5-flash 사용 (2.5-flash 대비 ~50% 절감)
+    preview_model = os.environ.get("GEMINI_PREVIEW_MODEL", "gemini-1.5-flash")
+    model = genai.GenerativeModel(preview_model)
     response = await model.generate_content_async(prompt)
 
     if (not response.candidates or
