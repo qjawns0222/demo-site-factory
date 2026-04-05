@@ -305,15 +305,31 @@ export function Header() {
             )}
           </div>
 
-          {/* Boot / Reset */}
+          {/* Boot / New Session / Reset */}
           {sessionId ? (
-            <button
-              onClick={resetGeneration}
-              disabled={isBusy}
-              className="bg-red-900/30 text-red-500 border border-red-800/50 hover:bg-red-900/80 px-4 py-2 rounded font-bold transition disabled:opacity-50 text-sm shrink-0"
-            >
-              Reset
-            </button>
+            <>
+              <button
+                onClick={() => {
+                  // 현재 세션은 히스토리에 남기고 UI만 초기화
+                  resetAll();
+                  localStorage.removeItem('demo_session_id');
+                  localStorage.removeItem('demo_domain');
+                  fetchWorkflow();
+                  toast('새 세션을 시작합니다. 도메인을 입력하고 Boot 하세요.', { icon: '✨' });
+                }}
+                disabled={isBusy}
+                className="bg-blue-800/40 text-blue-400 border border-blue-700/50 hover:bg-blue-800/80 px-3 py-2 rounded font-bold transition disabled:opacity-50 text-sm shrink-0"
+              >
+                + 새 세션
+              </button>
+              <button
+                onClick={resetGeneration}
+                disabled={isBusy}
+                className="bg-red-900/30 text-red-500 border border-red-800/50 hover:bg-red-900/80 px-4 py-2 rounded font-bold transition disabled:opacity-50 text-sm shrink-0"
+              >
+                Reset
+              </button>
+            </>
           ) : (
             <button
               onClick={startGeneration}

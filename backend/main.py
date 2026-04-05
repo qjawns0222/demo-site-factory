@@ -298,11 +298,12 @@ async def synthesize_step(session_id: str, step_id: int, payload: SynthesizeRequ
 
     await redis_client.set(f"session:{session_id}:step:{step_id}", payload.content, ex=86400)
 
+    # 입력 토큰 절감: 3000자 초과 시 앞부분만 사용
+    truncated_content = sanitized_content[:3000] if len(sanitized_content) > 3000 else sanitized_content
     summary_prompt = f"""
-    아래는 사용자가 방금 승인한 {step_id}단계의 데이터입니다.
-    이를 바탕으로 다음 단계를 위한 시스템 컨텍스트를 요약해 주세요.
-    반드시 다음 형식의 순수 JSON으로 반환하세요: {{"summary": "...", "context": "..."}}
-    내용: {sanitized_content}
+    {step_id}단계 승인 내용을 다음 단계를 위해 핵심만 요약하라.
+    불필요한 설명 없이 반드시 JSON만 반환: {{"summary": "3문장 이내 핵심 요약", "context": "다음 단계 AI가 알아야 할 핵심 정보 5줄 이내"}}
+    내용: {truncated_content}
     """
 
     try:
@@ -399,7 +400,7 @@ async def stream_step(request: Request, session_id: str, step_id: int, mode: str
 
         except Exception as e:
             err_str = str(e)
-            logger.error(f"Streaming error in step {step_id}: {err_str}")
+            logger.error(f"Streaming error in step {step_id}: {err_str}", exc_info=True)
             # 에러 원인별 사용자 메시지 분리
             if "429" in err_str or "quota" in err_str.lower() or "resource_exhausted" in err_str.lower():
                 user_msg = "API 사용량 한도 초과 (429) — 잠시 후 다시 시도하세요."
