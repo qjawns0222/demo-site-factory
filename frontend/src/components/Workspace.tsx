@@ -168,16 +168,16 @@ export function Workspace() {
           )}
         </div>
 
-        <div className="flex-1 flex flex-col bg-[#111] border border-neutral-800 rounded-xl shadow-2xl overflow-hidden relative">
-          {isEditing ? (
-            <textarea
-              className="w-full h-full bg-transparent text-neutral-300 p-6 outline-none font-mono text-sm leading-relaxed resize-none custom-scrollbar"
-              value={selectedStep.content}
-              onChange={(e) => updateStep(selectedStep.id, { content: e.target.value })}
-              spellCheck={false}
-            />
-          ) : (
-            <div ref={scrollRef} className="flex-1 p-8 overflow-y-auto break-words relative scroll-smooth custom-scrollbar">
+        <div className="flex-1 flex flex-col relative bg-[#111] border border-neutral-800 rounded-xl shadow-2xl overflow-hidden">
+          {/* textarea: 항상 DOM에 존재, isEditing일 때만 보임 */}
+          <textarea
+            className={`absolute inset-0 bg-[#111] text-neutral-300 p-6 outline-none font-mono text-sm leading-relaxed resize-none custom-scrollbar z-10 ${isEditing ? 'block' : 'hidden'}`}
+            value={selectedStep.content}
+            onChange={(e) => updateStep(selectedStep.id, { content: e.target.value })}
+            spellCheck={false}
+          />
+          {/* preview: 항상 DOM에 존재, isEditing일 때 숨김 */}
+          <div ref={scrollRef} className={`flex-1 p-8 overflow-y-auto break-words relative scroll-smooth custom-scrollbar ${isEditing ? 'invisible' : ''}`}>
               {selectedStep.status === 'PENDING' && (
                 <div className="flex flex-col items-center justify-center py-16 gap-4">
                   <div className="text-neutral-700 text-5xl mb-2">▶</div>
@@ -208,8 +208,7 @@ export function Workspace() {
                   실시간 토큰을 동기화 중입니다...
                 </div>
               )}
-            </div>
-          )}
+          </div>
         </div>
       </div>
     </section>

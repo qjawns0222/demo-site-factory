@@ -325,34 +325,57 @@ export function Sidebar() {
                         <div className="flex-1 h-px bg-amber-800/40" />
                       </div>
                     )}
-                    <button
-                      onClick={() => triggerStep(step.id)}
-                      disabled={!sessionId || ((isStreaming || isSynthesizing || isRunningAll) && step.id !== 10)}
-                      className={`w-full text-left text-sm px-3 py-3 rounded-lg flex items-start gap-3 transition
+                    <div className={`w-full text-sm px-3 py-3 rounded-lg flex items-center gap-3 transition
                         ${selectedStepId === step.id ? 'bg-neutral-800 text-white ring-1 ring-neutral-700' : 'text-neutral-400 hover:bg-neutral-800/50'}
-                        ${(isStreaming || isSynthesizing || isRunningAll) && selectedStepId !== step.id ? 'opacity-50 cursor-not-allowed' : ''}
                         ${step.status === 'DONE' && hasPartial ? 'opacity-60' : ''}
                       `}
                     >
-                      <div className="mt-0.5 shrink-0">
-                        {step.status === 'DONE' && <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" />}
-                        {step.status === 'WORKING' && <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.6)]" />}
-                        {step.status === 'PENDING' && <div className="w-2 h-2 rounded-full bg-neutral-700" />}
-                        {step.status === 'ERROR' && <div className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <span className="leading-snug">{step.name}</span>
-                        {step.status === 'DONE' && (
-                          <span className="ml-2 text-[10px] text-green-500/60">완료</span>
-                        )}
-                        {step.status === 'ERROR' && (
-                          <span className="ml-2 text-[10px] text-red-400/80">오류 — 재시도</span>
-                        )}
-                      </div>
-                      {isResumePoint && !isStreaming && !isRunningAll && (
-                        <span className="shrink-0 text-[10px] text-amber-400 font-semibold">재개 ▶</span>
+                      {/* 클릭 → 보기만 */}
+                      <button
+                        onClick={() => setSelectedStepId(step.id)}
+                        className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                      >
+                        <div className="mt-0.5 shrink-0">
+                          {step.status === 'DONE' && <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" />}
+                          {step.status === 'WORKING' && <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.6)]" />}
+                          {step.status === 'PENDING' && <div className="w-2 h-2 rounded-full bg-neutral-700" />}
+                          {step.status === 'ERROR' && <div className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <span className="leading-snug">{step.name}</span>
+                          {step.status === 'DONE' && (
+                            <span className="ml-2 text-[10px] text-green-500/60">완료</span>
+                          )}
+                          {step.status === 'ERROR' && (
+                            <span className="ml-2 text-[10px] text-red-400/80">오류</span>
+                          )}
+                        </div>
+                      </button>
+                      {/* 실행 버튼 */}
+                      {step.id !== 10 && (
+                        <button
+                          onClick={() => triggerStep(step.id)}
+                          disabled={!sessionId || isStreaming || isSynthesizing || isRunningAll}
+                          title="이 단계 실행"
+                          className="shrink-0 w-6 h-6 flex items-center justify-center rounded hover:bg-neutral-700 disabled:opacity-30 disabled:cursor-not-allowed text-neutral-500 hover:text-white transition text-xs"
+                        >
+                          ▶
+                        </button>
                       )}
-                    </button>
+                      {step.id === 10 && (
+                        <button
+                          onClick={() => triggerStep(step.id)}
+                          disabled={!sessionId}
+                          title="데모 열기/재생성"
+                          className="shrink-0 w-6 h-6 flex items-center justify-center rounded hover:bg-neutral-700 disabled:opacity-30 disabled:cursor-not-allowed text-violet-400 hover:text-violet-300 transition text-xs"
+                        >
+                          ▶
+                        </button>
+                      )}
+                      {isResumePoint && !isStreaming && !isRunningAll && (
+                        <span className="shrink-0 text-[10px] text-amber-400 font-semibold">재개</span>
+                      )}
+                    </div>
                   </div>
                 );
               })}
