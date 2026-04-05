@@ -10,7 +10,7 @@ export function Workspace() {
   const {
     steps, selectedStepId, isStreaming, isSynthesizing,
     updateStep, setIsSynthesizing, sessionId,
-    setPendingStepId, isRunningAll,
+    setPendingStepId, isRunningAll, markSynthesized,
   } = useWorkflowStore();
   const [isEditing, setIsEditing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -42,15 +42,10 @@ export function Workspace() {
         throw new Error(errData.detail || '승인에 실패했습니다.');
       }
 
-      toast.success('컨텍스트 합성 완료 — 다음 단계를 시작합니다.');
-
-      const currentSteps = useWorkflowStore.getState().steps;
-      const nextStep = currentSteps.find(s => s.id === (selectedStep.id + 1));
-      if (nextStep) {
-        setPendingStepId(nextStep.id);
-      }
+      markSynthesized(selectedStep.id, content);
+      toast.success('컨텍스트 저장 완료 — 사이드바에서 다음 단계를 실행하세요.');
     } catch (err: any) {
-      toast.error(`루프 병합 실패: ${err.message}`);
+      toast.error(`컨텍스트 저장 실패: ${err.message}`);
       if (isRunningAll) {
         useWorkflowStore.getState().setIsRunningAll(false);
       }
@@ -155,7 +150,7 @@ export function Workspace() {
                 className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-bold transition disabled:opacity-50 flex items-center gap-2"
               >
                 {isSynthesizing ? <span className="animate-spin text-lg">⚙</span> : null}
-                {isSynthesizing ? '컨텍스트 합성 중...' : '컨텍스트 승인 (Approve & Next)'}
+                {isSynthesizing ? '컨텍스트 저장 중...' : '컨텍스트 승인 (Approve)'}
               </button>
             </div>
           )}

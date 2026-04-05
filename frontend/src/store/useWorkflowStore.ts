@@ -24,6 +24,7 @@ interface WorkflowState {
   isRunningAll: boolean;
   generationMode: 'doc' | 'code';
   statusBanners: StatusBanner[];
+  synthesizedContent: Map<number, string>;
 
   setDomain: (domain: string) => void;
   setSessionId: (id: string) => void;
@@ -38,6 +39,7 @@ interface WorkflowState {
   addBanner: (banner: StatusBanner) => void;
   dismissBanner: (index: number) => void;
   clearBanners: () => void;
+  markSynthesized: (id: number, content: string) => void;
   resetAll: () => void;
 }
 
@@ -52,6 +54,7 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   isRunningAll: false,
   generationMode: 'doc',
   statusBanners: [],
+  synthesizedContent: new Map<number, string>(),
 
   setDomain: (domain) => set({ domain }),
   setSessionId: (id) => set({ sessionId: id }),
@@ -69,6 +72,11 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   addBanner: (banner) => set((state) => ({ statusBanners: [...state.statusBanners, banner] })),
   dismissBanner: (index) => set((state) => ({ statusBanners: state.statusBanners.filter((_, i) => i !== index) })),
   clearBanners: () => set({ statusBanners: [] }),
+  markSynthesized: (id, content) => set((state) => {
+    const next = new Map(state.synthesizedContent);
+    next.set(id, content);
+    return { synthesizedContent: next };
+  }),
   resetAll: () => set({
     steps: [],
     selectedStepId: null,
@@ -77,5 +85,15 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
     pendingStepId: null,
     isRunningAll: false,
     statusBanners: [],
+    synthesizedContent: new Map<number, string>(),
   }),
 }));
+
+// store 외부 유틸: synthesize 후 내용이 변경됐는지 확인
+export function isSynthesizedCurrent(stepId: number): boolean {
+  const state = useWorkflowStore.getState();
+  const savedContent = state.synthesizedContent.get(stepId);
+  if (savedContent === undefined) return false;
+  const currentContent = state.steps.find((s: StepState) => s.id === stepId)?.content ?? '';
+  return savedContent === currentContent;
+}

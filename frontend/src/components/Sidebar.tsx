@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useCallback } from 'react';
-import { useWorkflowStore } from '../store/useWorkflowStore';
+import { useWorkflowStore, isSynthesizedCurrent } from '../store/useWorkflowStore';
 import toast from 'react-hot-toast';
 
 const MAX_RETRIES = 3;
@@ -14,7 +14,7 @@ export function Sidebar() {
     updateStep, setIsStreaming,
     pendingStepId, setPendingStepId,
     isRunningAll, setIsRunningAll,
-    addBanner,
+    addBanner, markSynthesized,
   } = useWorkflowStore();
   const eventSourceRef = useRef<EventSource | null>(null);
   const retryCountRef = useRef<number>(0);
@@ -82,6 +82,7 @@ export function Sidebar() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content }),
           });
+          markSynthesized(stepId, content);
         } catch {
           // synthesize 실패해도 계속 진행 (컨텍스트 없이 다음 단계 실행)
           addBanner({ type: 'error', message: `${stepId}단계 컨텍스트 저장 실패 — 다음 단계 계속 진행`, stepId });
@@ -277,6 +278,34 @@ export function Sidebar() {
       clearTimeout(retryTimerRef.current);
       retryTimerRef.current = null;
     }
+
+    // 1단계가 아니고, 이전 단계가 DONE인데 synthesize 안 됐거나 내용이 변경됐으면 경고
+    const prevStepId = stepId - 1;
+    const prevStep = steps.find(s => s.id === prevStepId);
+    if (stepId > 1 && prevStep?.status === 'DONE' && !isSynthesizedCurrent(prevStepId)) {
+      toast((t) => (
+        <div className="flex flex-col gap-2">
+          <p className="text-sm font-semibold">이전 단계 컨텍스트 미승인</p>
+          <p className="text-xs text-neutral-300">{prevStep.name}의 컨텍스트가 저장되지 않았습니다. AI가 이전 내용을 참고하지 못할 수 있습니다.</p>
+          <div className="flex gap-2 mt-1">
+            <button
+              onClick={() => { toast.dismiss(t.id); connectStream(stepId); }}
+              className="px-3 py-1 bg-neutral-700 hover:bg-neutral-600 text-white rounded text-xs font-bold"
+            >
+              그냥 실행
+            </button>
+            <button
+              onClick={() => toast.dismiss(t.id)}
+              className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold"
+            >
+              돌아가서 승인하기
+            </button>
+          </div>
+        </div>
+      ), { duration: 10000 });
+      return;
+    }
+
     connectStream(stepId);
   };
 
