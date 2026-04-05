@@ -71,6 +71,67 @@ export function Workspace() {
     );
   }
 
+  // 10단계: 인터랙티브 데모 전용 뷰
+  if (selectedStep.id === 10) {
+    const previewUrl = sessionId ? `${API_URL}/api/preview/${sessionId}` : null;
+    const isWorking = selectedStep.status === 'WORKING';
+    const isReady = selectedStep.status === 'DONE';
+    const isError = selectedStep.status === 'ERROR';
+
+    return (
+      <section className="flex-1 bg-neutral-950 flex flex-col h-full overflow-hidden">
+        <div className="h-full flex flex-col max-w-5xl mx-auto w-full p-6 overflow-hidden">
+          <div className="mb-4 pb-4 border-b border-neutral-800 flex justify-between items-end shrink-0">
+            <div>
+              <span className="text-[10px] uppercase tracking-widest text-violet-500 font-bold mb-1 block">Interactive Demo</span>
+              <h2 className="text-2xl font-bold text-white tracking-tight">{selectedStep.name}</h2>
+            </div>
+            {isReady && previewUrl && (
+              <button
+                onClick={() => window.open(previewUrl, '_blank')}
+                className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded text-sm font-bold transition flex items-center gap-2"
+              >
+                🖥 새 탭에서 열기
+              </button>
+            )}
+          </div>
+
+          <div className="flex-1 flex flex-col bg-[#111] border border-neutral-800 rounded-xl shadow-2xl overflow-hidden">
+            {isWorking && (
+              <div className="flex flex-col items-center justify-center h-full gap-4 text-neutral-400">
+                <span className="text-4xl animate-spin">⚙</span>
+                <p className="font-semibold">인터랙티브 데모 생성 중...</p>
+                <p className="text-sm text-neutral-600">Gemini가 전체 스펙을 분석해 HTML 데모를 만들고 있습니다. 수 분이 소요됩니다.</p>
+              </div>
+            )}
+            {isError && (
+              <div className="flex flex-col items-center justify-center h-full gap-4 text-neutral-400">
+                <span className="text-4xl">⚠</span>
+                <p className="font-semibold text-rose-400">데모 생성에 실패했습니다</p>
+                <p className="text-sm text-neutral-600">좌측 사이드바에서 10단계를 클릭해 재시도하세요.</p>
+              </div>
+            )}
+            {!isWorking && !isError && !isReady && (
+              <div className="flex flex-col items-center justify-center h-full gap-4 text-neutral-400">
+                <span className="text-4xl">▶</span>
+                <p className="font-semibold">9단계 승인 후 자동 생성됩니다</p>
+                <p className="text-sm text-neutral-600">또는 좌측 사이드바에서 10단계를 클릭해 시작하세요.</p>
+              </div>
+            )}
+            {isReady && previewUrl && (
+              <iframe
+                src={previewUrl}
+                className="w-full h-full border-0"
+                title="인터랙티브 데모"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+              />
+            )}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="flex-1 bg-neutral-950 flex flex-col h-full overflow-hidden">
       <div className="h-full flex flex-col max-w-5xl mx-auto w-full p-6 overflow-hidden">
