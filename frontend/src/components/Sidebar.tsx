@@ -14,6 +14,7 @@ export function Sidebar() {
     updateStep, setIsStreaming,
     pendingStepId, setPendingStepId,
     isRunningAll, setIsRunningAll,
+    addBanner,
   } = useWorkflowStore();
   const eventSourceRef = useRef<EventSource | null>(null);
   const retryCountRef = useRef<number>(0);
@@ -64,7 +65,9 @@ export function Sidebar() {
       es.close();
       retryCountRef.current = 0;
       setIsStreaming(false);
-      toast.success(`${stepId}단계 스트리밍 완료`);
+
+      const stepName = useWorkflowStore.getState().steps.find(s => s.id === stepId)?.name || `${stepId}단계`;
+      addBanner({ type: 'success', message: `✓ ${stepName} 완료`, stepId });
 
       // Run All 모드: 자동으로 synthesize 후 다음 단계 트리거
       if (useWorkflowStore.getState().isRunningAll) {
@@ -81,7 +84,7 @@ export function Sidebar() {
           });
         } catch {
           // synthesize 실패해도 계속 진행 (컨텍스트 없이 다음 단계 실행)
-          toast(`${stepId}단계 컨텍스트 저장 실패 — 다음 단계 계속 진행`, { icon: '⚠️' });
+          addBanner({ type: 'error', message: `${stepId}단계 컨텍스트 저장 실패 — 다음 단계 계속 진행`, stepId });
         }
 
         if (nextStep) {
@@ -90,7 +93,7 @@ export function Sidebar() {
         } else {
           // 마지막 단계 완료
           setIsRunningAll(false);
-          toast.success('모든 단계 자동 완료!');
+          addBanner({ type: 'success', message: '모든 단계 자동 완료!' });
         }
       }
     });
@@ -110,11 +113,11 @@ export function Sidebar() {
         setIsStreaming(false);
         if (useWorkflowStore.getState().isRunningAll) {
           setIsRunningAll(false);
-          toast.error(`Run All 중단 — ${stepId}단계 오류: ${serverMsg}`);
+          addBanner({ type: 'error', message: `Run All 중단 — ${stepId}단계 오류: ${serverMsg}`, stepId });
         } else {
-          toast.error(`스트리밍 오류: ${serverMsg}`);
+          addBanner({ type: 'error', message: `${stepId}단계 오류: ${serverMsg}`, stepId });
         }
-        updateStep(stepId, { status: 'PENDING' });
+        updateStep(stepId, { status: 'ERROR' });
         return;
       }
 
@@ -127,28 +130,147 @@ export function Sidebar() {
         setIsStreaming(false);
         if (useWorkflowStore.getState().isRunningAll) {
           setIsRunningAll(false);
-          toast.error(`Run All 중단 — ${stepId}단계 재연결 실패`);
+          addBanner({ type: 'error', message: `Run All 중단 — ${stepId}단계 재연결 실패`, stepId });
         } else {
-          toast.error('재연결 실패 — 스텝을 다시 클릭해 주세요.');
+          addBanner({ type: 'error', message: `${stepId}단계 재연결 실패 — 클릭하여 재시도하세요.`, stepId });
         }
-        updateStep(stepId, { status: 'PENDING' });
+        updateStep(stepId, { status: 'ERROR' });
         retryCountRef.current = 0;
       }
     });
-  }, [API_URL, setIsStreaming, setIsRunningAll, setSelectedStepId, updateStep]);
+  }, [API_URL, setIsStreaming, setIsRunningAll, setSelectedStepId, updateStep, addBanner]);
 
-  // pendingStepId 변화 감지 → 스트림 실행
+  // pendingStepId 변화 감지 → 스트림 실행 (10단계는 preview 폴링)
   useEffect(() => {
     if (pendingStepId === null) return;
     const currentSessionId = useWorkflowStore.getState().sessionId;
     if (!currentSessionId) return;
     setPendingStepId(null);
-    connectStream(pendingStepId);
-  }, [pendingStepId, connectStream, setPendingStepId]);
 
-  const triggerStep = (stepId: number) => {
+    if (pendingStepId === 10) {
+      // 10단계: 백엔드에 생성 시작 요청 후 폴링
+      updateStep(10, { status: 'WORKING', content: '' });
+      // 명시적으로 생성 시작 요청 (캐시 없으면 백그라운드 생성 트리거)
+      fetch(`${API_URL}/api/preview/${currentSessionId}/generate`, { method: 'POST' }).catch(() => {});
+      const poll = async () => {
+        for (let i = 0; i < 120; i++) {
+          await new Promise(r => setTimeout(r, 3000));
+          try {
+            const res = await fetch(`${API_URL}/api/preview/${currentSessionId}/status`);
+            const data = await res.json();
+            if (data.status === 'ready') {
+              updateStep(10, { status: 'DONE', content: '인터랙티브 데모가 준비되었습니다.' });
+              setIsRunningAll(false);
+              addBanner({ type: 'success', message: '모든 단계 자동 완료! Preview 버튼으로 데모를 확인하세요.', stepId: 10 });
+              return;
+            }
+            if (data.status === 'error') {
+              updateStep(10, { status: 'ERROR', content: '' });
+              setIsRunningAll(false);
+              addBanner({ type: 'error', message: '데모 생성 실패 — 10단계를 클릭해 재시도하세요.', stepId: 10 });
+              return;
+            }
+          } catch { break; }
+        }
+        updateStep(10, { status: 'ERROR', content: '' });
+        setIsRunningAll(false);
+        addBanner({ type: 'error', message: '데모 생성 시간 초과 — 10단계를 클릭해 재시도하세요.', stepId: 10 });
+      };
+      poll();
+      return;
+    }
+
+    connectStream(pendingStepId);
+  }, [pendingStepId, connectStream, setPendingStepId, updateStep, setIsRunningAll, addBanner, API_URL]);
+
+  const triggerStep = async (stepId: number) => {
     if (!sessionId) {
       toast.error("먼저 Boot System 버튼을 눌러 세션을 할당받으세요.");
+      return;
+    }
+    // 10단계: preview 상태 확인 후 열기 or 재생성
+    if (stepId === 10) {
+      // ERROR/PENDING 상태면 즉시 폴링 시작 (백엔드가 아직 생성 중일 수 있음)
+      const currentStep = useWorkflowStore.getState().steps.find(s => s.id === 10);
+      if (currentStep?.status === 'ERROR' || currentStep?.status === 'PENDING') {
+        updateStep(10, { status: 'WORKING', content: '' });
+        toast('인터랙티브 데모 생성 시작! 완료까지 수분이 소요될 수 있습니다.', { icon: '🚀', duration: 5000 });
+        setPendingStepId(10);
+        return;
+      }
+
+      const res = await fetch(`${API_URL}/api/preview/${sessionId}/status`).catch(() => null);
+      if (res?.ok) {
+        const data = await res.json();
+        if (data.status === 'ready') {
+          // 준비됨: 열기 or 재생성 선택 (status 무관)
+          toast((t) => (
+              <div className="flex flex-col gap-2">
+                <span className="font-semibold text-sm">인터랙티브 데모</span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { window.open(`${API_URL}/api/preview/${sessionId}`, '_blank'); toast.dismiss(t.id); }}
+                    className="px-3 py-1 bg-violet-600 hover:bg-violet-500 text-white rounded text-xs font-bold"
+                  >
+                    🖥 열기
+                  </button>
+                  <button
+                    onClick={() => {
+                      toast.dismiss(t.id);
+                      // 요구사항 입력 토스트
+                      toast((t2) => {
+                        let reqText = '';
+                        return (
+                          <div className="flex flex-col gap-2" style={{ minWidth: 260 }}>
+                            <span className="font-semibold text-sm">재생성 요구사항 (선택)</span>
+                            <textarea
+                              rows={3}
+                              placeholder="예: 차트를 추가해줘, 모바일 레이아웃으로..."
+                              className="w-full text-xs rounded p-2 bg-neutral-800 border border-neutral-600 text-neutral-100 resize-none focus:outline-none focus:border-violet-500"
+                              onChange={(e) => { reqText = e.target.value; }}
+                              style={{ fontFamily: 'inherit' }}
+                            />
+                            <div className="flex gap-2 justify-end">
+                              <button
+                                onClick={() => toast.dismiss(t2.id)}
+                                className="px-3 py-1 bg-neutral-700 hover:bg-neutral-600 text-white rounded text-xs"
+                              >
+                                취소
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  toast.dismiss(t2.id);
+                                  await fetch(`${API_URL}/api/preview/${sessionId}/regenerate`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ user_requirements: reqText }),
+                                  });
+                                  updateStep(10, { status: 'WORKING', content: '' });
+                                  toast('데모 재생성 시작...', { icon: '🔄' });
+                                  setPendingStepId(10);
+                                }}
+                                className="px-3 py-1 bg-violet-600 hover:bg-violet-500 text-white rounded text-xs font-bold"
+                              >
+                                🔄 재생성
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      }, { duration: 30000 });
+                    }}
+                    className="px-3 py-1 bg-neutral-700 hover:bg-neutral-600 text-white rounded text-xs font-bold"
+                  >
+                    🔄 재생성
+                  </button>
+                </div>
+              </div>
+            ), { duration: 8000 });
+        } else {
+          toast('아직 생성 중입니다. 잠시 후 다시 눌러주세요.', { icon: '⏳' });
+        }
+      } else {
+        window.open(`${API_URL}/api/preview/${sessionId}`, '_blank');
+      }
       return;
     }
     if (retryTimerRef.current) {
@@ -176,7 +298,8 @@ export function Sidebar() {
         {(() => {
           const doneCount = steps.filter(s => s.status === 'DONE').length;
           const resumeStep = steps.find(s => s.status !== 'DONE');
-          const hasPartial = doneCount > 0 && doneCount < steps.length && !isRunningAll && !isStreaming;
+          const isStep10Working = steps.find(s => s.id === 10)?.status === 'WORKING';
+          const hasPartial = doneCount > 0 && doneCount < steps.length && !isRunningAll && !isStreaming && !isStep10Working;
 
           return (
             <>
@@ -204,7 +327,7 @@ export function Sidebar() {
                     )}
                     <button
                       onClick={() => triggerStep(step.id)}
-                      disabled={isStreaming || isSynthesizing || !sessionId || isRunningAll}
+                      disabled={!sessionId || ((isStreaming || isSynthesizing || isRunningAll) && step.id !== 10)}
                       className={`w-full text-left text-sm px-3 py-3 rounded-lg flex items-start gap-3 transition
                         ${selectedStepId === step.id ? 'bg-neutral-800 text-white ring-1 ring-neutral-700' : 'text-neutral-400 hover:bg-neutral-800/50'}
                         ${(isStreaming || isSynthesizing || isRunningAll) && selectedStepId !== step.id ? 'opacity-50 cursor-not-allowed' : ''}
@@ -215,11 +338,15 @@ export function Sidebar() {
                         {step.status === 'DONE' && <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" />}
                         {step.status === 'WORKING' && <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.6)]" />}
                         {step.status === 'PENDING' && <div className="w-2 h-2 rounded-full bg-neutral-700" />}
+                        {step.status === 'ERROR' && <div className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <span className="leading-snug">{step.name}</span>
                         {step.status === 'DONE' && (
                           <span className="ml-2 text-[10px] text-green-500/60">완료</span>
+                        )}
+                        {step.status === 'ERROR' && (
+                          <span className="ml-2 text-[10px] text-red-400/80">오류 — 재시도</span>
                         )}
                       </div>
                       {isResumePoint && !isStreaming && !isRunningAll && (

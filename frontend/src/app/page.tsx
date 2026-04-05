@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import { Header } from '@/components/Header';
 import { Sidebar } from '@/components/Sidebar';
 import { Workspace } from '@/components/Workspace';
+import { StatusBannerBar } from '@/components/StatusBannerBar';
 
 export default function Home() {
   return (
@@ -16,6 +17,7 @@ export default function Home() {
         }
       }} />
       <Header />
+      <StatusBannerBar />
       <main className="flex-1 flex overflow-hidden">
         <Sidebar />
         <Workspace />

@@ -117,7 +117,7 @@ export function Workspace() {
             />
           ) : (
             <div ref={scrollRef} className="flex-1 p-8 overflow-y-auto break-words relative scroll-smooth custom-scrollbar">
-              {selectedStep.status === 'PENDING' && !isStreaming && (
+              {selectedStep.status === 'PENDING' && (
                 <div className="flex flex-col items-center justify-center py-16 gap-4">
                   <div className="text-neutral-700 text-5xl mb-2">▶</div>
                   <p className="text-neutral-400 font-semibold text-lg">{selectedStep.name}</p>

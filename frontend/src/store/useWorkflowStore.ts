@@ -3,8 +3,14 @@ import { create } from 'zustand';
 export type StepState = {
   id: number;
   name: string;
-  status: 'PENDING' | 'WORKING' | 'DONE';
+  status: 'PENDING' | 'WORKING' | 'DONE' | 'ERROR';
   content?: string;
+};
+
+export type StatusBanner = {
+  type: 'success' | 'error' | 'info';
+  message: string;
+  stepId?: number;
 };
 
 interface WorkflowState {
@@ -17,6 +23,7 @@ interface WorkflowState {
   pendingStepId: number | null;
   isRunningAll: boolean;
   generationMode: 'doc' | 'code';
+  statusBanners: StatusBanner[];
 
   setDomain: (domain: string) => void;
   setSessionId: (id: string) => void;
@@ -28,6 +35,9 @@ interface WorkflowState {
   setPendingStepId: (id: number | null) => void;
   setIsRunningAll: (val: boolean) => void;
   setGenerationMode: (mode: 'doc' | 'code') => void;
+  addBanner: (banner: StatusBanner) => void;
+  dismissBanner: (index: number) => void;
+  clearBanners: () => void;
   resetAll: () => void;
 }
 
@@ -41,6 +51,7 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   pendingStepId: null,
   isRunningAll: false,
   generationMode: 'doc',
+  statusBanners: [],
 
   setDomain: (domain) => set({ domain }),
   setSessionId: (id) => set({ sessionId: id }),
@@ -55,6 +66,9 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   setPendingStepId: (id) => set({ pendingStepId: id }),
   setIsRunningAll: (val) => set({ isRunningAll: val }),
   setGenerationMode: (mode) => set({ generationMode: mode }),
+  addBanner: (banner) => set((state) => ({ statusBanners: [...state.statusBanners, banner] })),
+  dismissBanner: (index) => set((state) => ({ statusBanners: state.statusBanners.filter((_, i) => i !== index) })),
+  clearBanners: () => set({ statusBanners: [] }),
   resetAll: () => set({
     steps: [],
     selectedStepId: null,
@@ -62,5 +76,6 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
     domain: '',
     pendingStepId: null,
     isRunningAll: false,
+    statusBanners: [],
   }),
 }));

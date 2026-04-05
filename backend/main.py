@@ -186,6 +186,7 @@ STEP_NAMES = {
     7: "데모용 시드 데이터 설계",
     8: "구현 리스크 및 의존성 지도",
     9: "데모 시나리오 및 시연 큐시트",
+    10: "인터랙티브 데모 생성",
 }
 
 @app.get("/api/workflow")
@@ -215,6 +216,10 @@ async def get_workflow():
             {"id": 9, "name": "종합 검토 및 최적화"},
         ]
 
+    # 10단계는 DB에 프롬프트 없이 가상으로 추가 (preview 자동생성 단계)
+    if steps and not any(s["id"] == 10 for s in steps):
+        steps.append({"id": 10, "name": STEP_NAMES[10]})
+
     return {"steps": steps}
 
 @app.get("/api/session/{session_id}/steps")
@@ -223,16 +228,21 @@ async def get_session_steps(session_id: str):
     if not domain:
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
 
-    # 모든 step content를 Redis에서 한 번에 가져오기
+    # 모든 step content를 Redis에서 한 번에 가져오기 (step 10 preview 캐시 포함)
     pipe = redis_client.pipeline()
     for step_id in range(1, 10):
         pipe.get(f"session:{session_id}:step:{step_id}")
+    pipe.get(f"session:{session_id}:preview")
     results = await pipe.execute()
 
     steps = {}
-    for i, content in enumerate(results, start=1):
+    for i, content in enumerate(results[:9], start=1):
         if content:
             steps[i] = content
+
+    # step 10: preview 캐시가 존재하면 DONE
+    if results[9]:
+        steps[10] = "인터랙티브 데모가 준비되었습니다."
 
     return {"session_id": session_id, "domain": domain, "steps": steps}
 
@@ -310,6 +320,10 @@ async def synthesize_step(session_id: str, step_id: int, payload: SynthesizeRequ
     except Exception as e:
         logger.error(f"Failed to synthesize for {session_id}: {e}")
         raise HTTPException(status_code=500, detail="Gemini AI 합성 중 지속적 오류 발생")
+
+    # 9단계 완료 시 10단계(인터랙티브 데모) 백그라운드 자동 생성
+    if step_id == 9:
+        asyncio.create_task(_generate_and_cache_preview(session_id))
 
     return {"status": "loop_closed", "summary": summary_result}
 
@@ -442,17 +456,9 @@ async def export_zip(session_id: str):
         headers={"Content-Disposition": f"attachment; filename={safe_domain_filename}_project.zip"}
     )
 
-@app.get("/api/preview/{session_id}", response_class=HTMLResponse)
-async def preview_html(session_id: str):
-    domain = await redis_client.get(f"session_meta:{session_id}:domain")
-    if not domain:
-        raise HTTPException(status_code=404, detail="세션 만료이거나 유효하지 않은 UUID 접근입니다.")
-
+async def _build_preview_html(session_id: str, domain: str, user_requirements: str = "") -> str:
+    """spec 수집 → Gemini 호출 → HTML 반환 (캐싱 없음, 순수 생성)"""
     keys = await redis_scan_keys(f"session:{session_id}:step:*")
-    if not keys:
-        raise HTTPException(status_code=404, detail="프리뷰할 데이터가 없습니다. 먼저 Workflow를 시작하십시오.")
-
-    # 단계 순서대로 수집 (100번대 code 모드 제외)
     keys_sorted = sorted(
         [k for k in keys if int(k.split(":")[-1]) < 100],
         key=lambda k: int(k.split(":")[-1])
@@ -469,50 +475,252 @@ async def preview_html(session_id: str):
 
     spec_text = "\n\n".join(spec_parts)
 
-    # DUMMY MODE: Gemini 없이 간단한 HTML 반환
     if DUMMY_MODE:
-        html = f"""<!DOCTYPE html>
-<html lang="ko">
-<head><meta charset="UTF-8"><title>{domain} — Demo</title>
-<style>body{{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px;}}
-h1{{color:#333;}}p{{color:#666;}}</style></head>
-<body><h1>{domain}</h1><p>더미 모드 — GEMINI_API_KEY를 설정하면 실제 데모가 생성됩니다.</p></body>
-</html>"""
-        return HTMLResponse(content=html)
+        return f"""<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>{domain} — Demo</title>
+<style>body{{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px;}}h1{{color:#333;}}p{{color:#666;}}</style></head>
+<body><h1>{domain}</h1><p>더미 모드 — GEMINI_API_KEY를 설정하면 실제 데모가 생성됩니다.</p></body></html>"""
 
-    # Gemini로 동작하는 HTML 데모 생성
-    prompt = f"""당신은 시니어 프론트엔드 개발자입니다.
-아래는 "{domain}" 서비스의 기획/설계 문서입니다.
+    extra_req_block = ""
+    if user_requirements and user_requirements.strip():
+        extra_req_block = f"""
+## 사용자 추가 요구사항 (최우선 반영)
+
+아래 요구사항은 일반 가이드라인보다 우선합니다. 반드시 반영하세요:
+
+{user_requirements.strip()}
+
+---
+"""
+
+    prompt = f"""당신은 10년 경력의 시니어 프론트엔드 개발자입니다. 실제 프로덕션 수준의 인터랙티브 데모를 만드는 것이 목표입니다.
+{extra_req_block}
+아래는 "{domain}" 서비스의 기획/설계 문서입니다:
 
 {spec_text}
 
+---
+
 위 문서를 바탕으로 완전히 동작하는 단일 HTML 파일 데모를 만들어주세요.
 
-요구사항:
-- 단일 HTML 파일 (CSS, JS 모두 인라인)
-- 실제처럼 보이는 더미 하드코딩 데이터 포함
-- 버튼 클릭, 탭 전환, 검색 등 핵심 인터랙션 동작
-- 모던하고 깔끔한 UI (Tailwind CDN 사용 가능)
-- 한국어 UI
-- 실제 서비스처럼 자연스럽게 보일 것
+## 필수 기술 요구사항
 
-반드시 완전한 HTML 파일만 출력하세요. 설명이나 마크다운 코드블록 없이 <!DOCTYPE html>부터 시작하세요."""
+1. **단일 파일**: CSS, JavaScript 모두 인라인 (외부 CDN은 Tailwind, Font Awesome만 허용)
+2. **한국어 UI**: 모든 텍스트, 버튼, 레이블 한국어
+
+## 더미 데이터 요구사항 (가장 중요)
+
+더미 데이터는 절대 빠질 수 없습니다. 다음 규칙을 반드시 지키세요:
+
+- 도메인 "{domain}"에 어울리는 **현실적이고 구체적인** 더미 데이터를 **최소 12개** 하드코딩
+- 단순히 "항목 1", "사용자 A" 같은 무의미한 데이터 금지
+- 실제 서비스처럼 보이는 이름, 날짜, 금액, 상태값, 설명문 포함
+- 데이터는 JavaScript 배열/객체로 정의하고 렌더링 함수로 화면에 표시
+- 예시 (chat-service라면): `{{id:1, name:"김민준", lastMsg:"안녕하세요!", time:"오전 10:23", unread:3, status:"online"}}`
+
+## UI/UX 품질 기준 (반드시 준수)
+
+### 모달/팝업 규칙
+- 모달은 **반드시 기본값 닫힘 상태** (display:none 또는 hidden class)
+- 닫기 버튼(×)은 **반드시 클릭 시 모달 닫힘** 동작
+- 모달 배경(overlay) 클릭 시에도 닫힘
+- `document.getElementById('modal').style.display = 'flex'` 같은 명시적 show/hide 패턴 사용
+
+### 화면 전환 규칙
+- 탭/메뉴/사이드바는 **반드시 실제 콘텐츠가 전환**되어야 함 (단순 색상 변경 금지)
+- 각 화면(뷰)은 별도 섹션으로 구현하고 show/hide로 전환
+- 최소 3개 이상의 구분되는 화면 또는 탭 뷰 구현
+
+### 인터랙션 규칙
+- 모든 버튼은 클릭 시 **즉각적이고 눈에 보이는 반응** (상태 변경, 모달 열림, 데이터 갱신 등)
+- 폼 제출 버튼은 **유효성 검사 후 성공 메시지 표시** + 목록에 실제로 추가
+- 검색/필터는 **더미 데이터를 실제로 필터링**해서 결과 갱신
+
+### 상태 관리 규칙
+- 각 인터랙티브 요소의 상태를 JavaScript 변수로 명시적 관리
+- `let isModalOpen = false` 같은 상태 변수 패턴 사용
+- 중복 이벤트 리스너 방지 (addEventListener는 한 번만)
+
+### 디자인 규칙
+- 다크/라이트 테마 중 하나를 일관되게 유지
+- 호버 상태, 포커스 상태 명시적 스타일링
+- 로딩 상태가 있는 버튼은 로딩 인디케이터 표시
+
+## 구현해야 할 핵심 기능 (최소 5개)
+
+서비스 문서를 분석하여 가장 중요한 기능 5개 이상을 선택하고, 각각 실제로 동작하게 구현하세요:
+- 대시보드/목록 뷰 (더미 데이터 렌더링)
+- 상세 보기 (클릭 시 모달 또는 패널 열림/닫힘)
+- 생성/추가 기능 (폼 → 목록에 항목 추가)
+- 필터링/검색 (실제 데이터 필터링)
+- 상태 변경 (토글, 승인/거절 등)
+
+## 시나리오 가이드 패널 (필수 포함)
+
+데모 우측 하단에 플로팅 버튼 "📋 시나리오"를 반드시 추가하세요.
+버튼 클릭 시 사이드 패널이 열리고 다음 내용을 표시합니다:
+
+```
+[시나리오 패널 구조]
+제목: 테스트 시나리오
+부제: 아래 순서대로 따라해보세요
+
+시나리오 1: [첫 번째 핵심 기능 이름]
+  → [구체적인 클릭 경로: "상단 메뉴 > XXX 클릭 > YYY 입력"]
+
+시나리오 2: [두 번째 핵심 기능 이름]
+  → [구체적인 클릭 경로]
+
+시나리오 3: [세 번째 핵심 기능 이름]
+  → [구체적인 클릭 경로]
+
+(최소 3개, 최대 5개 시나리오)
+```
+
+시나리오는 실제 구현된 기능을 반영해야 하며, 존재하지 않는 기능을 안내하면 안 됩니다.
+패널 닫기 버튼(×)도 반드시 동작해야 합니다.
+
+## 코드 품질 체크리스트
+
+출력 전 스스로 확인:
+- [ ] 더미 데이터가 최소 12개 이상 있고 현실적인가?
+- [ ] 모든 모달이 초기에 닫혀있는가?
+- [ ] 모든 닫기(×) 버튼이 실제로 동작하는가?
+- [ ] 모든 탭/필터가 실제 콘텐츠를 전환하는가?
+- [ ] 시나리오 패널이 포함되어 있고 닫기 버튼이 동작하는가?
+- [ ] console.error가 발생할 null 참조가 없는가?
+- [ ] 이벤트 리스너가 중복 등록되지 않는가?
+
+## 출력 형식
+
+반드시 완전한 HTML 파일만 출력하세요.
+설명, 주석 블록, 마크다운 코드블록(```) 없이 정확히 <!DOCTYPE html>로 시작하고 </html>로 끝내세요."""
+
+    model = genai.GenerativeModel(GEMINI_MODEL)
+    response = await model.generate_content_async(prompt)
+
+    if (not response.candidates or
+        not response.candidates[0].content or
+        not response.candidates[0].content.parts):
+        raise ValueError("Gemini가 빈 응답을 반환했습니다.")
+
+    generated = response.text.strip()
+    if generated.startswith("```html"):
+        generated = generated[7:]
+    if generated.startswith("```"):
+        generated = generated[3:]
+    if generated.endswith("```"):
+        generated = generated[:-3]
+    return generated.strip()
+
+
+async def _generate_and_cache_preview(session_id: str, user_requirements: str = ""):
+    """9단계 synthesize 완료 후 백그라운드에서 preview 생성 + Redis 캐싱"""
+    status_key = f"session:{session_id}:preview_status"
+    try:
+        domain = await redis_client.get(f"session_meta:{session_id}:domain")
+        if not domain:
+            return
+        # 이미 캐시 있으면 스킵 (user_requirements가 있으면 강제 재생성이므로 스킵 안 함)
+        if not user_requirements:
+            existing = await redis_client.get(f"session:{session_id}:preview")
+            if existing:
+                return
+        logger.info(f"[Preview] Background generation started for {session_id}")
+        await redis_client.set(status_key, "generating", ex=3600)
+        html = await asyncio.wait_for(
+            _build_preview_html(session_id, domain, user_requirements=user_requirements),
+            timeout=600  # 10분
+        )
+        await redis_client.set(f"session:{session_id}:preview", html, ex=86400)
+        await redis_client.delete(status_key)
+        logger.info(f"[Preview] Cached for {session_id} ({len(html)} chars)")
+    except asyncio.TimeoutError:
+        logger.error(f"[Preview] Generation timed out for {session_id}")
+        await redis_client.set(status_key, "error", ex=300)
+    except Exception as e:
+        logger.error(f"[Preview] Background generation failed for {session_id}: {e}")
+        await redis_client.set(status_key, "error", ex=300)
+
+
+@app.post("/api/preview/{session_id}/generate")
+async def preview_generate(session_id: str):
+    """캐시가 없을 때 preview 생성을 명시적으로 시작 (10단계 수동 재시도용)"""
+    domain = await redis_client.get(f"session_meta:{session_id}:domain")
+    if not domain:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    existing = await redis_client.get(f"session:{session_id}:preview")
+    if existing:
+        return {"status": "already_ready"}
+    status_key = f"session:{session_id}:preview_status"
+    current_status = await redis_client.get(status_key)
+    if current_status == "generating":
+        return {"status": "already_generating"}
+    asyncio.create_task(_generate_and_cache_preview(session_id))
+    return {"status": "started"}
+
+
+class RegenerateRequest(BaseModel):
+    user_requirements: str = ""
+
+
+@app.post("/api/preview/{session_id}/regenerate")
+async def preview_regenerate(session_id: str, body: RegenerateRequest = RegenerateRequest()):
+    """캐시를 삭제하고 preview를 강제 재생성"""
+    domain = await redis_client.get(f"session_meta:{session_id}:domain")
+    if not domain:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    await redis_client.delete(f"session:{session_id}:preview")
+    asyncio.create_task(_generate_and_cache_preview(session_id, user_requirements=body.user_requirements))
+    return {"status": "regenerating"}
+
+
+@app.get("/api/preview/{session_id}/status")
+async def preview_status(session_id: str):
+    """10단계 상태 확인: ready / generating / error"""
+    domain = await redis_client.get(f"session_meta:{session_id}:domain")
+    if not domain:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    cached = await redis_client.get(f"session:{session_id}:preview")
+    if cached:
+        return {"status": "ready"}
+    status = await redis_client.get(f"session:{session_id}:preview_status")
+    if status == "error":
+        return {"status": "error"}
+    return {"status": "generating"}
+
+
+@app.get("/api/preview/{session_id}/source")
+async def preview_source(session_id: str):
+    """HTML 소스코드 텍스트 반환"""
+    domain = await redis_client.get(f"session_meta:{session_id}:domain")
+    if not domain:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    cached = await redis_client.get(f"session:{session_id}:preview")
+    if cached:
+        return {"html": cached}
+    raise HTTPException(status_code=404, detail="아직 생성 중입니다. 잠시 후 다시 시도하세요.")
+
+
+@app.get("/api/preview/{session_id}", response_class=HTMLResponse)
+async def preview_html(session_id: str):
+    domain = await redis_client.get(f"session_meta:{session_id}:domain")
+    if not domain:
+        raise HTTPException(status_code=404, detail="세션 만료이거나 유효하지 않은 UUID 접근입니다.")
+
+    # 캐시 우선
+    cached = await redis_client.get(f"session:{session_id}:preview")
+    if cached:
+        return HTMLResponse(content=cached)
+
+    # 캐시 없으면 즉시 생성
+    keys = await redis_scan_keys(f"session:{session_id}:step:*")
+    if not keys:
+        raise HTTPException(status_code=404, detail="프리뷰할 데이터가 없습니다. 먼저 Workflow를 시작하십시오.")
 
     try:
-        model = genai.GenerativeModel(GEMINI_MODEL)
-        response = model.generate_content(prompt)
-        generated = response.text.strip()
-
-        # 코드블록 래핑 제거
-        if generated.startswith("```html"):
-            generated = generated[7:]
-        if generated.startswith("```"):
-            generated = generated[3:]
-        if generated.endswith("```"):
-            generated = generated[:-3]
-        generated = generated.strip()
-
-        return HTMLResponse(content=generated)
+        html = await _build_preview_html(session_id, domain)
+        await redis_client.set(f"session:{session_id}:preview", html, ex=86400)
+        return HTMLResponse(content=html)
     except Exception as e:
         logger.error(f"Preview generation failed: {e}")
         raise HTTPException(status_code=500, detail=f"데모 생성 실패: {str(e)}")

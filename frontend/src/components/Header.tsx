@@ -212,6 +212,28 @@ export function Header() {
     window.open(`${API_URL}/api/preview/${sessionId}`, '_blank');
   };
 
+  const handlePreviewSource = async () => {
+    if (!sessionId) return toast.error('세션 데이터가 없습니다.');
+    try {
+      const res = await fetch(`${API_URL}/api/preview/${sessionId}/source`);
+      if (!res.ok) {
+        const err = await res.json();
+        return toast.error(err.detail || '소스코드를 불러올 수 없습니다.');
+      }
+      const data = await res.json();
+      const blob = new Blob([data.html], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${sessionId.slice(0, 8)}-demo.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('HTML 소스 다운로드 완료');
+    } catch {
+      toast.error('소스코드 다운로드 실패');
+    }
+  };
+
   const isBusy = isStreaming || isSynthesizing || isRunningAll || isRestoring;
 
   return (
@@ -321,6 +343,16 @@ export function Header() {
             className="bg-violet-700 hover:bg-violet-600 disabled:opacity-50 disabled:bg-neutral-800 disabled:text-neutral-500 text-white px-4 py-2 rounded font-semibold transition shrink-0 text-sm"
           >
             🖥 Preview
+          </button>
+
+          {/* HTML 소스 다운로드 */}
+          <button
+            onClick={handlePreviewSource}
+            disabled={!sessionId}
+            className="bg-neutral-700 hover:bg-neutral-600 disabled:opacity-50 disabled:bg-neutral-800 disabled:text-neutral-500 text-white px-3 py-2 rounded font-semibold transition shrink-0 text-sm"
+            title="HTML 소스코드 다운로드"
+          >
+            &lt;/&gt;
           </button>
 
           {/* ZIP Export */}
