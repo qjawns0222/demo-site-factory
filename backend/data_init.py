@@ -21,6 +21,7 @@ async def init_db():
         if os.path.exists(PROMPTS_DIR):
             import aiofiles
             seeded = 0
+            seeded_ids = set()
             for file_name in sorted(os.listdir(PROMPTS_DIR)):
                 # 일반 프롬프트: step_N.txt → step_id = N
                 # 코드 모드 프롬프트: step_N_code.txt → step_id = N + 100
@@ -42,7 +43,16 @@ async def init_db():
                         "INSERT OR REPLACE INTO prompts (step_id, content) VALUES (?, ?)",
                         (step_id, content)
                     )
+                    seeded_ids.add(step_id)
                     seeded += 1
+
+            # 파일에 없는 step_id는 DB에서 제거
+            if seeded_ids:
+                placeholders = ",".join("?" * len(seeded_ids))
+                await db.execute(
+                    f"DELETE FROM prompts WHERE step_id NOT IN ({placeholders})",
+                    list(seeded_ids)
+                )
             await db.commit()
             logger.info(f"Prompts synced to SQLite: {seeded} entries (INSERT OR REPLACE).")
         else:
