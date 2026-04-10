@@ -537,107 +537,178 @@ async def _build_preview_html(session_id: str, domain: str, user_requirements: s
 ---
 """
 
-    prompt = f"""당신은 10년 경력의 시니어 프론트엔드 개발자입니다. 실제 프로덕션 수준의 인터랙티브 데모를 만드는 것이 목표입니다.
+    prompt = f"""You are a senior frontend developer. Generate a single-file interactive HTML demo for "{domain}" service.
 {extra_req_block}
-아래는 "{domain}" 서비스의 기획/설계 문서입니다:
+## Service Specification
 
 {spec_text}
 
 ---
 
-위 문서를 바탕으로 완전히 동작하는 단일 HTML 파일 데모를 만들어주세요.
+## STRICT CODE STRUCTURE (follow exactly)
 
-## 필수 기술 요구사항
+Your output MUST follow this JavaScript structure inside <script> tag:
 
-1. **단일 파일**: CSS, JavaScript 모두 인라인 (외부 CDN은 Tailwind, Font Awesome만 허용)
-2. **한국어 UI**: 모든 텍스트, 버튼, 레이블 한국어
+```
+// =============================================
+// 1. DUMMY DATA (minimum 12 realistic items)
+// =============================================
+const DUMMY_DATA = [
+  // {domain} specific realistic data
+  // Include: Korean names, real dates, amounts, status values, descriptions
+  // NO "항목1", "사용자A" placeholder names — use real-looking data
+];
 
-## 더미 데이터 요구사항 (가장 중요)
+// =============================================
+// 2. APP STATE
+// =============================================
+const state = {{
+  currentView: 'dashboard',  // active tab/view name
+  currentItem: null,          // selected item for modal
+  filteredData: [...DUMMY_DATA],
+  searchQuery: '',
+}};
 
-더미 데이터는 절대 빠질 수 없습니다. 다음 규칙을 반드시 지키세요:
+// =============================================
+// 3. VIEW SWITCHER (tabs/menu)
+// =============================================
+function showView(viewName) {{
+  // Hide ALL views
+  document.querySelectorAll('.view-section').forEach(el => el.style.display = 'none');
+  // Show target view
+  document.getElementById('view-' + viewName).style.display = 'block';
+  // Update nav active state
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  document.querySelector('[data-view="' + viewName + '"]').classList.add('active');
+  state.currentView = viewName;
+}}
 
-- 도메인 "{domain}"에 어울리는 **현실적이고 구체적인** 더미 데이터를 **최소 12개** 하드코딩
-- 단순히 "항목 1", "사용자 A" 같은 무의미한 데이터 금지
-- 실제 서비스처럼 보이는 이름, 날짜, 금액, 상태값, 설명문 포함
-- 데이터는 JavaScript 배열/객체로 정의하고 렌더링 함수로 화면에 표시
-- **반드시 `DOMContentLoaded` 또는 `window.onload`에서 렌더링 함수를 즉시 호출**해 초기 화면에 데이터가 표시되게 할 것
-- 예시 패턴:
-  ```
-  const items = [{{id:1, name:"김민준", ...}}, ...];
-  function renderItems(list) {{ /* DOM에 카드/행 생성 */ }}
-  document.addEventListener('DOMContentLoaded', () => {{ renderItems(items); }});
-  ```
-- 페이지 첫 로드 시 메인 콘텐츠 영역이 **절대 비어있으면 안 됨** — 더미 데이터가 즉시 보여야 함
-- 예시 (trend-service라면): `{{id:1, title:"K-팝 해외 반응 폭발", category:"Pop Culture", sentiment:"긍정", views:48200, saved:312, date:"2026-04-03"}}`
+// =============================================
+// 4. MODAL FUNCTIONS (always open/close pair)
+// =============================================
+function openModal(item) {{
+  state.currentItem = item;
+  // Populate modal content with item data
+  const modal = document.getElementById('detail-modal');
+  modal.style.display = 'flex';
+}}
 
-## UI/UX 품질 기준 (반드시 준수)
+function closeModal() {{
+  document.getElementById('detail-modal').style.display = 'none';
+  state.currentItem = null;
+}}
 
-### 모달/팝업 규칙
-- 모달은 **반드시 기본값 닫힘 상태** (display:none 또는 hidden class)
-- 닫기 버튼(×)은 **반드시 클릭 시 모달 닫힘** 동작
-- 모달 배경(overlay) 클릭 시에도 닫힘
-- `document.getElementById('modal').style.display = 'flex'` 같은 명시적 show/hide 패턴 사용
+// =============================================
+// 5. RENDER FUNCTION (called on load + data change)
+// =============================================
+function renderList(data) {{
+  const container = document.getElementById('list-container');
+  container.innerHTML = data.map(item => `
+    <div class="item-card" onclick="openModal(${{JSON.stringify(item).replace(/"/g, '&quot;')}})">
+      <!-- card content using item fields -->
+    </div>
+  `).join('');
+}}
 
-### 화면 전환 규칙
-- 탭/메뉴/사이드바는 **반드시 실제 콘텐츠가 전환**되어야 함 (단순 색상 변경 금지)
-- 각 화면(뷰)은 별도 섹션으로 구현하고 show/hide로 전환
-- 최소 3개 이상의 구분되는 화면 또는 탭 뷰 구현
+// =============================================
+// 6. SEARCH/FILTER
+// =============================================
+function handleSearch(query) {{
+  state.searchQuery = query;
+  state.filteredData = DUMMY_DATA.filter(item =>
+    Object.values(item).some(v => String(v).toLowerCase().includes(query.toLowerCase()))
+  );
+  renderList(state.filteredData);
+}}
 
-### 인터랙션 규칙
-- 모든 버튼은 클릭 시 **즉각적이고 눈에 보이는 반응** (상태 변경, 모달 열림, 데이터 갱신 등)
-- 폼 제출 버튼은 **유효성 검사 후 성공 메시지 표시** + 목록에 실제로 추가
-- 검색/필터는 **더미 데이터를 실제로 필터링**해서 결과 갱신
+// =============================================
+// 7. FORM SUBMIT (add to list)
+// =============================================
+function handleFormSubmit(e) {{
+  e.preventDefault();
+  const formData = new FormData(e.target);
+  const newItem = {{
+    id: Date.now(),
+    // extract fields from formData
+  }};
+  DUMMY_DATA.unshift(newItem);
+  state.filteredData = [...DUMMY_DATA];
+  renderList(state.filteredData);
+  e.target.reset();
+  showToast('성공적으로 등록되었습니다.');
+  closeModal();
+}}
 
-### select/dropdown 규칙 (절대 위반 금지)
-- `<select>` 또는 드롭다운을 사용할 때는 **반드시 실제 선택 가능한 `<option>` 항목을 최소 3개 이상** 하드코딩
-- `<option value="">선택하세요</option>` 같은 placeholder만 있고 실제 선택지가 없는 select 금지
-- 예: 카테고리 select라면 `<option value="food">음식</option><option value="tech">기술</option>` 등 실제 값 포함
-- select 값에 의존하는 폼 제출 로직은 선택지가 없을 때 제출 불가가 되므로 반드시 선택지를 채울 것
+// =============================================
+// 8. TOAST NOTIFICATION
+// =============================================
+function showToast(message) {{
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.style.display = 'block';
+  setTimeout(() => {{ toast.style.display = 'none'; }}, 2500);
+}}
 
-### 모달 닫기 규칙 (절대 위반 금지)
-- **모든 모달/팝업/다이얼로그에는 반드시 닫기 버튼(×)이 있어야 함**
-- 닫기 버튼 예시: `<button onclick="closeModal()" class="...">×</button>`
-- 모달 열기 함수와 닫기 함수를 항상 쌍으로 구현: `openModal()` / `closeModal()`
-- 모달 외부 배경(overlay) 클릭 시에도 닫힘 동작 추가
+// =============================================
+// 9. INIT (runs on page load)
+// =============================================
+document.addEventListener('DOMContentLoaded', () => {{
+  renderList(DUMMY_DATA);  // MUST render data immediately
+  showView('dashboard');   // show default view
 
-### 상태 관리 규칙
-- 각 인터랙티브 요소의 상태를 JavaScript 변수로 명시적 관리
-- `let isModalOpen = false` 같은 상태 변수 패턴 사용
-- 중복 이벤트 리스너 방지 (addEventListener는 한 번만)
+  // Wire up search input
+  document.getElementById('search-input').addEventListener('input', e => handleSearch(e.target.value));
 
-### 디자인 규칙
-- 다크/라이트 테마 중 하나를 일관되게 유지
-- 호버 상태, 포커스 상태 명시적 스타일링
-- 로딩 상태가 있는 버튼은 로딩 인디케이터 표시
+  // Wire up form
+  const form = document.getElementById('add-form');
+  if (form) form.addEventListener('submit', handleFormSubmit);
 
-## 구현해야 할 핵심 기능 (최소 5개)
+  // Close modal on overlay click
+  document.getElementById('detail-modal').addEventListener('click', e => {{
+    if (e.target === e.currentTarget) closeModal();
+  }});
+}});
+```
 
-서비스 문서를 분석하여 가장 중요한 기능 5개 이상을 선택하고, 각각 실제로 동작하게 구현하세요:
-- 대시보드/목록 뷰 (더미 데이터 렌더링)
-- 상세 보기 (클릭 시 모달 또는 패널 열림/닫힘)
-- 생성/추가 기능 (폼 → 목록에 항목 추가)
-- 필터링/검색 (실제 데이터 필터링)
-- 상태 변경 (토글, 승인/거절 등)
+## REQUIRED HTML ELEMENTS
 
-## 코드 품질 체크리스트 (출력 전 반드시 자가 검증)
+Your HTML MUST include these elements with exact IDs:
+- `id="list-container"` — main data list/grid container (never empty on load)
+- `id="detail-modal"` — modal dialog (initial style="display:none")
+- `id="search-input"` — search text input
+- `id="add-form"` — form for adding new items
+- `id="toast"` — toast notification (initial style="display:none")
+- `.view-section` class on each tab view div
+- `.nav-item` class + `data-view="..."` attribute on each nav button
+- Modal must have: `<button onclick="closeModal()">×</button>`
 
-- [ ] 더미 데이터가 최소 12개 이상 있고 현실적인가?
-- [ ] `DOMContentLoaded`에서 렌더링 함수를 즉시 호출해 초기 화면이 비어있지 않은가?
-- [ ] 모든 모달이 초기에 **닫힌 상태** (display:none)인가?
-- [ ] 모든 닫기(×) 버튼에 `onclick` 핸들러가 **반드시 붙어있는가**?
-- [ ] 모든 탭/메뉴 클릭이 **실제 콘텐츠를 show/hide** 전환하는가?
-- [ ] 모든 "등록", "저장", "추가" 버튼이 클릭 시 **목록에 실제로 항목이 추가**되는가?
-- [ ] 검색/필터 입력 시 **더미 데이터가 실시간 필터링**되는가?
-- [ ] console.error가 발생할 null 참조 (`getElementById` 결과 없음 등)가 없는가?
-- [ ] 이벤트 리스너 중복 등록이 없는가?
-- [ ] **모든 버튼이 클릭 시 즉각적이고 눈에 보이는 반응**을 하는가?
-- [ ] 모든 `<select>`에 실제 선택 가능한 `<option>`이 최소 3개 이상 있는가?
-- [ ] 모든 모달/팝업에 닫기(×) 버튼이 있고 `onclick`으로 실제 닫히는가?
+## REQUIRED SELECT ELEMENTS
 
-## 출력 형식
+Every `<select>` must have minimum 3 real `<option>` values (no empty placeholder-only selects):
+```html
+<select name="category">
+  <option value="">카테고리 선택</option>
+  <option value="type1">실제값1</option>
+  <option value="type2">실제값2</option>
+  <option value="type3">실제값3</option>
+</select>
+```
 
-반드시 완전한 HTML 파일만 출력하세요.
-설명, 주석 블록, 마크다운 코드블록(```) 없이 정확히 <!DOCTYPE html>로 시작하고 </html>로 끝내세요."""
+## DESIGN REQUIREMENTS
+
+- Use a consistent dark OR light theme (pick one, apply everywhere)
+- Tailwind CSS via CDN for styling
+- Font Awesome via CDN for icons
+- All UI text in Korean
+- Minimum 3 distinct tab views with real content in each
+- Hover/focus states on all interactive elements
+- Responsive layout (mobile-friendly)
+
+## OUTPUT FORMAT
+
+Output ONLY the complete HTML file.
+Start exactly with `<!DOCTYPE html>` and end with `</html>`.
+No explanation, no markdown code fences, no comments outside the HTML."""
 
     # 비용 최적화: preview 생성은 1.5-flash 사용 (2.5-flash 대비 ~50% 절감)
     preview_model = os.environ.get("GEMINI_PREVIEW_MODEL", "gemini-1.5-flash")
