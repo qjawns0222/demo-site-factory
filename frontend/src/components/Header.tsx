@@ -9,7 +9,6 @@ export function Header() {
     domain, sessionId, setDomain, setSessionId, setSteps,
     isStreaming, isSynthesizing, steps, resetAll,
     isRunningAll, setIsRunningAll, setPendingStepId,
-    generationMode, setGenerationMode,
   } = useWorkflowStore();
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -247,24 +246,6 @@ export function Header() {
 
         {/* 메인 컨트롤 */}
         <div className="flex gap-2 flex-1 min-w-0 flex-wrap">
-          {/* 모드 토글 (세션 없을 때만) */}
-          {!sessionId && (
-            <div className="flex rounded overflow-hidden border border-neutral-700 shrink-0">
-              <button
-                onClick={() => setGenerationMode('doc')}
-                className={`px-3 py-2 text-xs font-semibold transition ${generationMode === 'doc' ? 'bg-blue-700 text-white' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}`}
-              >
-                문서
-              </button>
-              <button
-                onClick={() => setGenerationMode('code')}
-                className={`px-3 py-2 text-xs font-semibold transition ${generationMode === 'code' ? 'bg-emerald-700 text-white' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}`}
-              >
-                코드
-              </button>
-            </div>
-          )}
-
           {/* 도메인 입력 */}
           <input
             type="text"
@@ -387,14 +368,10 @@ export function Header() {
         <div className="mt-2 text-[11px] text-amber-400 animate-pulse">⏳ 이전 세션 복구 중...</div>
       )}
 
-      {/* 모드 표시 (세션 진행 중) */}
-      {sessionId && !isRestoring && (
+      {/* 자동 실행 중 표시 */}
+      {sessionId && !isRestoring && isRunningAll && (
         <div className="mt-2 flex items-center gap-2 text-[11px] text-neutral-500">
-          <span>모드:</span>
-          <span className={generationMode === 'code' ? 'text-emerald-400 font-bold' : 'text-blue-400 font-bold'}>
-            {generationMode === 'code' ? '코드 생성' : '문서'}
-          </span>
-          {isRunningAll && <span className="text-amber-400 animate-pulse ml-2">● 자동 실행 중</span>}
+          <span className="text-amber-400 animate-pulse">● 자동 실행 중</span>
         </div>
       )}
     </header>

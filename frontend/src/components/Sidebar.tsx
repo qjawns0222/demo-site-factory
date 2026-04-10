@@ -43,9 +43,8 @@ export function Sidebar() {
       updateStep(stepId, { status: 'WORKING', content: '' });
     }
 
-    const { generationMode } = useWorkflowStore.getState();
     const es = new EventSource(
-      `${API_URL}/api/stream_step/${currentSessionId}/${stepId}?mode=${generationMode}`
+      `${API_URL}/api/stream_step/${currentSessionId}/${stepId}`
     );
     eventSourceRef.current = es;
 

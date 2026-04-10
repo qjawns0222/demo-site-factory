@@ -185,7 +185,6 @@ STEP_NAMES = {
     6: "컴포넌트 및 서비스 레이어 구현 명세",
     7: "데모용 시드 데이터 설계",
     8: "구현 리스크 및 의존성 지도",
-    9: "데모 시나리오 및 시연 큐시트",
     10: "인터랙티브 데모 생성",
 }
 
@@ -329,7 +328,7 @@ async def synthesize_step(session_id: str, step_id: int, payload: SynthesizeRequ
     return {"status": "loop_closed", "summary": summary_result}
 
 @app.get("/api/stream_step/{session_id}/{step_id}")
-async def stream_step(request: Request, session_id: str, step_id: int, mode: str = "doc"):
+async def stream_step(request: Request, session_id: str, step_id: int):
     domain = await redis_client.get(f"session_meta:{session_id}:domain")
     if not domain:
         raise HTTPException(status_code=404, detail="유효하지 않은 세션입니다. 해킹된 접근일 수 있습니다.")
@@ -337,19 +336,11 @@ async def stream_step(request: Request, session_id: str, step_id: int, mode: str
     async def event_generator() -> AsyncGenerator[Dict[str, Any], None]:
         try:
             db_prompt = ""
-            # 코드 모드면 step_id에 100을 더한 ID로 조회 (코드 모드 프롬프트는 step_id+100으로 저장)
-            prompt_step_id = step_id + 100 if mode == "code" else step_id
             async with aiosqlite.connect(DB_PATH) as db:
-                async with db.execute("SELECT content FROM prompts WHERE step_id = ?", (prompt_step_id,)) as cursor:
+                async with db.execute("SELECT content FROM prompts WHERE step_id = ?", (step_id,)) as cursor:
                     row = await cursor.fetchone()
                     if row:
                         db_prompt = row[0]
-                # 코드 모드 프롬프트 없으면 일반 프롬프트로 fallback
-                if not db_prompt and mode == "code":
-                    async with db.execute("SELECT content FROM prompts WHERE step_id = ?", (step_id,)) as cursor:
-                        row = await cursor.fetchone()
-                        if row:
-                            db_prompt = row[0]
 
             if not db_prompt:
                 db_prompt = f"이것은 {step_id}단계의 동적 기본 프롬프트입니다. 도메인 {domain}에 맞게 작업하세요."
@@ -358,23 +349,21 @@ async def stream_step(request: Request, session_id: str, step_id: int, mode: str
             context_str = ""
             if context_history_str:
                 history = json.loads(context_history_str)
-                summaries = [f"[{h['step_id']}단계] {h.get('summary', '')}" for h in history]
-                context_str = "이전 단계 누적 컨텍스트:\n" + "\n".join(summaries)
-
-            mode_instruction = "\n\n[코드 생성 모드: 실제 구현 가능한 코드를 작성하세요. React/TypeScript, FastAPI/Python 등 구체적인 코드 포함.]" if mode == "code" else ""
+                recent = history[-2:]  # 최근 2단계만 사용해 토큰 절약
+                summaries = [f"[{h['step_id']}단계] {h.get('summary', '')}" for h in recent]
+                context_str = "이전 단계 컨텍스트:\n" + "\n".join(summaries)
 
             full_prompt = f"""
-            [{domain}]에 대한 {'코드 생성' if mode == 'code' else '문서 생성'} 작업
+            [{domain}]에 대한 문서 생성 작업
             {context_str}
 
             {db_prompt}
-            {mode_instruction}
             """
 
             generated_content = ""
 
             if DUMMY_MODE:
-                dummy_tokens = f"DUMMY DATA STREAM: API 코드가 없습니다. 도메인 {domain}용 가상응답 {step_id} (모드: {mode})".split(" ")
+                dummy_tokens = f"DUMMY DATA STREAM: API 코드가 없습니다. 도메인 {domain}용 가상응답 {step_id}".split(" ")
                 for token in dummy_tokens:
                     if await request.is_disconnected():
                         logger.info("Client disconnected.")
@@ -428,12 +417,21 @@ async def export_zip(session_id: str):
     with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(f"{domain}_report.md", f"# AI Demo Site Report\n\nDomain: {domain}\nSession ID: {session_id}\n")
 
-        for key in keys:
+        step_summaries = []
+        for key in sorted(keys, key=lambda k: int(k.split(":")[-1])):
             content = await redis_client.get(key)
             if not content: continue
 
             step_id_str = key.split(":")[-1]
+            try:
+                step_num = int(step_id_str)
+                if step_num >= 100:
+                    continue  # code 모드 프롬프트는 ZIP에서 제외
+                step_name = STEP_NAMES.get(step_num, f"단계 {step_num}")
+            except ValueError:
+                step_name = f"단계 {step_id_str}"
             zf.writestr(f"step_{step_id_str}.md", content)
+            step_summaries.append((step_id_str, step_name))
 
             pattern = re.compile(r"```([a-zA-Z0-9_+\-]+)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
             blocks = pattern.findall(content)
@@ -448,6 +446,38 @@ async def export_zip(session_id: str):
                     zf.writestr(f"src/{safe_name}", code_content)
                 except Exception as e:
                     logger.error(f"Failed to extract safe file {safe_name}: {e}")
+
+        # PROMPT.md 생성 — AI 코딩 도구용 구현 지시 파일
+        file_list = "\n".join([f"- step_{sid}.md : {name}" for sid, name in step_summaries])
+        prompt_md = f"""# {domain} — AI 구현 프롬프트
+
+이 ZIP 파일에는 "{domain}" 서비스의 설계 문서가 포함되어 있습니다.
+아래 파일들을 컨텍스트로 읽고, 완전히 실행 가능한 프로젝트를 구현해주세요.
+
+## 포함된 설계 문서
+
+{file_list}
+
+## 구현 지시사항
+
+1. 위 문서들을 순서대로 모두 읽어 전체 설계를 파악하세요.
+2. step_5.md (데이터 모델/API)와 step_6.md (구현 명세)를 핵심 기준으로 삼으세요.
+3. step_8.md (리스크/의존성)를 참고해 구현 순서와 주의사항을 확인하세요.
+4. 프로젝트 구조를 먼저 생성한 뒤, 파일별로 순차 구현하세요.
+5. 각 파일 구현 후 다른 파일과의 인터페이스가 일치하는지 확인하세요.
+
+## 권장 기술 스택
+
+- Frontend: Next.js (TypeScript), Tailwind CSS
+- Backend: FastAPI (Python) 또는 Next.js API Routes
+- Database: PostgreSQL 또는 SQLite (개발용)
+- 배포: Docker Compose
+
+## 시작점
+
+`step_8.md`의 "구현 시작점 권장" 섹션을 먼저 확인하고 그 순서에 따라 구현을 시작하세요.
+"""
+        zf.writestr("PROMPT.md", prompt_md)
 
     memory_file.seek(0)
     safe_domain_filename = re.sub(r'[^a-zA-Z0-9_\-]', '_', domain)

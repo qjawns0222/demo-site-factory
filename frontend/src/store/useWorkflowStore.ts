@@ -22,7 +22,6 @@ interface WorkflowState {
   isSynthesizing: boolean;
   pendingStepId: number | null;
   isRunningAll: boolean;
-  generationMode: 'doc' | 'code';
   statusBanners: StatusBanner[];
   synthesizedContent: Map<number, string>;
 
@@ -35,7 +34,6 @@ interface WorkflowState {
   setIsSynthesizing: (val: boolean) => void;
   setPendingStepId: (id: number | null) => void;
   setIsRunningAll: (val: boolean) => void;
-  setGenerationMode: (mode: 'doc' | 'code') => void;
   addBanner: (banner: StatusBanner) => void;
   dismissBanner: (index: number) => void;
   clearBanners: () => void;
@@ -52,7 +50,6 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   isSynthesizing: false,
   pendingStepId: null,
   isRunningAll: false,
-  generationMode: 'doc',
   statusBanners: [],
   synthesizedContent: new Map<number, string>(),
 
@@ -68,7 +65,6 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   setIsSynthesizing: (val) => set({ isSynthesizing: val }),
   setPendingStepId: (id) => set({ pendingStepId: id }),
   setIsRunningAll: (val) => set({ isRunningAll: val }),
-  setGenerationMode: (mode) => set({ generationMode: mode }),
   addBanner: (banner) => set((state) => ({ statusBanners: [...state.statusBanners, banner] })),
   dismissBanner: (index) => set((state) => ({ statusBanners: state.statusBanners.filter((_, i) => i !== index) })),
   clearBanners: () => set({ statusBanners: [] }),
