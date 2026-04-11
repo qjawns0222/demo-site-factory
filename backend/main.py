@@ -976,3 +976,207 @@ async def update_prompt(step_id: int, payload: PromptUpdateRequest, x_admin_toke
         await db.commit()
     logger.info(f"Admin updated prompt for step {step_id}")
     return {"status": "updated", "step_id": step_id}
+
+
+# ─── 기획서 생성 API ───────────────────────────────────────────────────────────
+
+class PlanPagesRequest(BaseModel):
+    session_id: str
+
+class PlanPagesReviseRequest(BaseModel):
+    session_id: str
+    pages: list[dict]
+    comment: str
+
+class PlanGenerateRequest(BaseModel):
+    session_id: str
+    page_name: str
+    mode: str = "single"  # "single" | "all"
+
+
+async def _get_plan_context(session_id: str) -> tuple[str, str]:
+    """기획서 생성용 컨텍스트 수집: Step 1, 2, 4, 6 synthesize 요약 반환"""
+    domain = await redis_client.get(f"session_meta:{session_id}:domain")
+    if not domain:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+
+    context_history_str = await redis_client.get(f"session:{session_id}:context_history")
+    context_parts = []
+
+    if context_history_str:
+        history = json.loads(context_history_str)
+        target_steps = {1, 2, 4, 6}
+        for entry in history:
+            step_id = int(entry.get("step_id", 0))
+            if step_id in target_steps:
+                step_name = STEP_NAMES.get(step_id, f"단계 {step_id}")
+                summary = entry.get("summary", "")
+                context = entry.get("context", "")
+                context_parts.append(f"=== {step_name} ===\n{summary}\n{context}".strip())
+    else:
+        # fallback: synthesize 없으면 step 원문 사용
+        for step_id in [1, 2, 4, 6]:
+            content = await redis_client.get(f"session:{session_id}:step:{step_id}")
+            if content:
+                step_name = STEP_NAMES.get(step_id, f"단계 {step_id}")
+                context_parts.append(f"=== {step_name} ===\n{content[:2000]}")
+
+    return domain, "\n\n".join(context_parts)
+
+
+@app.post("/api/plan/pages")
+async def get_plan_pages(payload: PlanPagesRequest):
+    """워크플로우 컨텍스트를 분석해 기획서 페이지 목록을 JSON으로 반환"""
+    domain, context = await _get_plan_context(payload.session_id)
+
+    if DUMMY_MODE:
+        return {"pages": [
+            {"name": "메인 홈", "description": "서비스 진입점, 핵심 기능 소개"},
+            {"name": "대시보드", "description": "주요 지표 및 현황 요약"},
+            {"name": "목록 페이지", "description": "전체 항목 조회 및 필터링"},
+            {"name": "상세 페이지", "description": "개별 항목 상세 정보"},
+            {"name": "설정 페이지", "description": "사용자 환경 설정"},
+        ]}
+
+    prompt = f"""당신은 서비스 기획자입니다. 아래 "{domain}" 서비스 설계 컨텍스트를 분석하여 기획서에 포함될 페이지 목록을 JSON으로 반환하세요.
+
+## 서비스 설계 컨텍스트
+{context}
+
+## 지시사항
+- 이 서비스에 실제로 필요한 주요 화면(페이지) 목록을 추출하세요.
+- 개발자용 상세 페이지(API 문서, 에러 페이지 등)는 제외하세요.
+- 각 페이지는 name(페이지명)과 description(한 줄 설명)을 포함하세요.
+- 반드시 JSON만 반환: {{"pages": [{{"name": "페이지명", "description": "설명"}}]}}
+- 최소 4개, 최대 10개 페이지
+"""
+
+    result = await safe_generate_json(prompt)
+    pages = result.get("pages", [])
+    if not isinstance(pages, list):
+        pages = []
+    return {"pages": pages}
+
+
+@app.post("/api/plan/pages/revise")
+async def revise_plan_pages(payload: PlanPagesReviseRequest):
+    """코멘트를 반영해 페이지 목록을 재생성"""
+    domain, context = await _get_plan_context(payload.session_id)
+
+    if DUMMY_MODE:
+        return {"pages": payload.pages + [{"name": "추가 페이지", "description": payload.comment}]}
+
+    current_pages_str = "\n".join([f"- {p['name']}: {p.get('description', '')}" for p in payload.pages])
+
+    prompt = f"""당신은 서비스 기획자입니다. 아래 현재 페이지 목록을 사용자 코멘트에 맞게 수정하여 JSON으로 반환하세요.
+
+## 현재 페이지 목록
+{current_pages_str}
+
+## 사용자 코멘트
+{payload.comment}
+
+## 서비스 컨텍스트 (참고용)
+{context[:1500]}
+
+## 지시사항
+- 코멘트를 최우선으로 반영하세요.
+- 반드시 JSON만 반환: {{"pages": [{{"name": "페이지명", "description": "설명"}}]}}
+"""
+
+    result = await safe_generate_json(prompt)
+    pages = result.get("pages", [])
+    if not isinstance(pages, list):
+        pages = payload.pages
+    return {"pages": pages}
+
+
+@app.post("/api/plan/generate")
+async def generate_plan_page(payload: PlanGenerateRequest):
+    """특정 페이지의 기획서 섹션을 생성 (ASCII 레이아웃 + 번호별 인터랙션 명세)"""
+    domain, context = await _get_plan_context(payload.session_id)
+    page_name = payload.page_name
+
+    if DUMMY_MODE:
+        return {"content": f"""## {page_name}
+
+### 화면 레이아웃
+
+```
+┌─────────────────────────────────────┐
+│  ① [검색바                    🔍]   │
+├─────────────────────────────────────┤
+│  ② [필터A] [필터B] [필터C]          │
+├──────────────┬──────────────────────┤
+│ ③ 카드       │ ③ 카드               │
+│   [④ 버튼]  │   [④ 버튼]           │
+└──────────────┴──────────────────────┘
+```
+
+### 요소별 인터랙션 명세
+
+① 검색바
+   - 입력 시 실시간 자동완성 드롭다운 표시
+   - 엔터/검색 버튼 클릭 시 결과 필터링
+
+② 필터 탭
+   - 클릭 시 해당 카테고리로 목록 필터링
+   - 활성 탭 하이라이트 표시
+
+③ 콘텐츠 카드
+   - 클릭 시 상세 페이지로 이동
+   - hover 시 그림자 강조 효과
+
+④ 액션 버튼
+   - 클릭 시 저장 완료 토스트 팝업 표시
+   - 재클릭 시 취소 확인 모달 표시
+"""}
+
+    prompt = f"""당신은 서비스 기획자입니다. "{domain}" 서비스의 "{page_name}" 페이지 기획서를 Markdown으로 작성하세요.
+
+## 서비스 설계 컨텍스트
+{context}
+
+## 작성 지시사항
+
+1. **화면 레이아웃**: ASCII 박스 문자(┌ ─ ┐ │ └ ┘ ├ ┤ ┬ ┴ ┼)로 실제 화면 구조를 그리세요.
+   - 주요 UI 요소에 ①②③... 번호를 매기세요.
+   - 실제 서비스처럼 보이게 현실적으로 그리세요.
+
+2. **요소별 인터랙션 명세**: 각 번호에 대해 구체적인 동작을 명세하세요.
+   - "버튼 클릭 시 → 어떤 팝업/페이지/모달이 나타난다" 형태로 작성
+   - 추상적 설명 금지 ("편리하게" 등), 반드시 구체적 동작 명세
+
+## 출력 형식 (반드시 준수)
+
+## {page_name}
+
+### 화면 레이아웃
+
+```
+[ASCII 레이아웃]
+```
+
+### 요소별 인터랙션 명세
+
+① [요소명]
+   - [구체적 동작 명세]
+   - [구체적 동작 명세]
+
+② [요소명]
+   ...
+"""
+
+    if DUMMY_MODE:
+        return {"content": f"## {page_name}\n\n> DUMMY MODE — API KEY 없음"}
+
+    model = genai.GenerativeModel(GEMINI_MODEL)
+    generation_config = genai.types.GenerationConfig(temperature=0.7)
+
+    try:
+        response = await model.generate_content_async(prompt, generation_config=generation_config)
+        content = response.text.strip() if response.text else f"## {page_name}\n\n생성 실패"
+        return {"content": content}
+    except Exception as e:
+        logger.error(f"Plan generate error for {page_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"기획서 생성 실패: {str(e)[:100]}")

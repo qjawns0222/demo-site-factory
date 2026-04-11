@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import toast from 'react-hot-toast';
+import { PlanModal } from './PlanModal';
 
 export function Header() {
   const {
@@ -15,6 +16,7 @@ export function Header() {
   const [sessions, setSessions] = useState<{session_id: string; domain: string}[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [showPlanModal, setShowPlanModal] = useState(false);
   const historyRef = useRef<HTMLDivElement>(null);
 
   // sessionId가 바뀌면 localStorage에 저장
@@ -360,8 +362,27 @@ export function Header() {
           >
             ZIP
           </button>
+
+          {/* 기획서 생성 */}
+          <button
+            onClick={() => setShowPlanModal(true)}
+            disabled={!sessionId}
+            className="bg-indigo-700 hover:bg-indigo-600 disabled:opacity-50 disabled:bg-neutral-800 disabled:text-neutral-500 text-white px-4 py-2 rounded font-semibold transition shrink-0 text-sm"
+          >
+            📋 기획서
+          </button>
         </div>
       </div>
+
+      {/* 기획서 모달 */}
+      {showPlanModal && sessionId && (
+        <PlanModal
+          sessionId={sessionId}
+          domain={domain}
+          apiUrl={API_URL}
+          onClose={() => setShowPlanModal(false)}
+        />
+      )}
 
       {/* 복구 중 표시 */}
       {isRestoring && (
