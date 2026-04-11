@@ -566,34 +566,41 @@ Pick the archetype that a real product designer would choose for "{domain}". Sta
 
 ## REQUIRED CODE STRUCTURE
 
-Regardless of layout, your JavaScript MUST include these sections:
+Regardless of layout, your JavaScript MUST include these sections. ALL sections are MANDATORY — do not omit or leave as stubs.
 
 ```
 // =============================================
-// 1. DUMMY DATA (minimum 12 realistic items)
+// 1. DUMMY DATA — MANDATORY: minimum 15 items, ALL fields populated
 // =============================================
+// RULES:
+// - Design the object shape to fit "{domain}" exactly — don't use generic fields
+// - Every object MUST have at least 6 domain-appropriate fields
+// - Field names must reflect the real domain (e.g. HR→ 직급/부서/입사일, logistics→ 운송번호/출발지/도착지/무게)
+// - Use real Korean names, real-looking dates (2024-2025), realistic amounts/numbers
+// - Include varied status values that match the domain workflow
+// - NO placeholder names like "홍길동1", "항목A", "사용자1", "테스트"
+// - All 15 items must be unique — no copy-paste with only one field changed
 const DUMMY_DATA = [
-  // {domain} specific realistic data
-  // Korean names, real dates, amounts, status values
-  // NO "항목1", "사용자A" — use real-looking data
+  // 15 items with domain-specific fields for "{domain}"
 ];
 
 // =============================================
 // 2. APP STATE
 // =============================================
 const state = {{
-  currentView: 'main',   // adapt view names to your layout
+  currentView: 'main',
   currentItem: null,
   filteredData: [...DUMMY_DATA],
   searchQuery: '',
 }};
 
 // =============================================
-// 3. VIEW SWITCHER (adapt to your layout)
+// 3. VIEW SWITCHER
 // =============================================
 function showView(viewName) {{
   document.querySelectorAll('.view-section').forEach(el => el.style.display = 'none');
-  document.getElementById('view-' + viewName).style.display = 'block';
+  const target = document.getElementById('view-' + viewName);
+  if (target) target.style.display = 'block';
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   const navItem = document.querySelector('[data-view="' + viewName + '"]');
   if (navItem) navItem.classList.add('active');
@@ -601,30 +608,44 @@ function showView(viewName) {{
 }}
 
 // =============================================
-// 4. MODAL (detail view or action panel)
+// 4. MODAL
 // =============================================
 function openModal(item) {{
   state.currentItem = item;
-  document.getElementById('detail-modal').style.display = 'flex';
+  // MANDATORY: populate modal with item data before showing
+  // Example: document.getElementById('modal-title').textContent = item.name;
+  const modal = document.getElementById('detail-modal');
+  if (modal) modal.style.display = 'flex';
 }}
 function closeModal() {{
-  document.getElementById('detail-modal').style.display = 'none';
+  const modal = document.getElementById('detail-modal');
+  if (modal) modal.style.display = 'none';
   state.currentItem = null;
 }}
 
 // =============================================
-// 5. RENDER (layout-specific — implement fully)
+// 5. RENDER — MANDATORY: implement fully for chosen layout
 // =============================================
+// This function MUST produce visible DOM content immediately.
+// NEVER leave this as a stub or empty function.
+//
+// For DASHBOARD: render KPI cards + table rows with DUMMY_DATA
+// For KANBAN:    distribute items into columns by status field
+// For FEED:      render post/card for each item with author, content, timestamp
+// For CALENDAR:  render event dots/blocks on date cells
+// For GALLERY:   render image cards in grid with title, price, tags
+// For CHAT:      render contact list entries; clicking one loads message thread
+// For TIMELINE:  render vertical steps with status icons and timestamps
+// For FORM-WIZARD: render current step fields, update progress bar
+//
+// EVERY card/row MUST have an onclick that calls openModal(item) with the item object.
+// Use JSON.stringify carefully: openModal(${{JSON.stringify(item).replace(/'/g, "&#39;").replace(/"/g, '&quot;')}})
 function renderContent(data) {{
-  // implement based on chosen archetype
-  // KANBAN: render cards into columns
-  // FEED: render post cards
-  // CALENDAR: render event slots
-  // etc.
+  // IMPLEMENT THIS FULLY — no stubs
 }}
 
 // =============================================
-// 6. SEARCH/FILTER
+// 6. SEARCH / FILTER
 // =============================================
 function handleSearch(query) {{
   state.searchQuery = query;
@@ -635,11 +656,13 @@ function handleSearch(query) {{
 }}
 
 // =============================================
-// 7. FORM SUBMIT
+// 7. FORM SUBMIT — wire to id="add-form"
 // =============================================
 function handleFormSubmit(e) {{
   e.preventDefault();
-  const newItem = {{ id: Date.now(), /* extract fields */ }};
+  const fd = new FormData(e.target);
+  const newItem = {{ id: Date.now() }};
+  fd.forEach((v, k) => {{ newItem[k] = v; }});
   DUMMY_DATA.unshift(newItem);
   state.filteredData = [...DUMMY_DATA];
   renderContent(state.filteredData);
@@ -653,16 +676,17 @@ function handleFormSubmit(e) {{
 // =============================================
 function showToast(message) {{
   const toast = document.getElementById('toast');
+  if (!toast) return;
   toast.textContent = message;
   toast.style.display = 'block';
   setTimeout(() => {{ toast.style.display = 'none'; }}, 2500);
 }}
 
 // =============================================
-// 9. INIT
+// 9. INIT — runs on DOMContentLoaded
 // =============================================
 document.addEventListener('DOMContentLoaded', () => {{
-  renderContent(DUMMY_DATA);
+  renderContent(DUMMY_DATA);  // MUST call with data — never empty
 
   const searchEl = document.getElementById('search-input');
   if (searchEl) searchEl.addEventListener('input', e => handleSearch(e.target.value));
@@ -672,6 +696,15 @@ document.addEventListener('DOMContentLoaded', () => {{
 
   const modal = document.getElementById('detail-modal');
   if (modal) modal.addEventListener('click', e => {{ if (e.target === e.currentTarget) closeModal(); }});
+
+  // Wire ALL buttons with data-action attributes
+  document.querySelectorAll('[data-action]').forEach(btn => {{
+    btn.addEventListener('click', () => {{
+      const action = btn.dataset.action;
+      if (action === 'open-add-modal') openModal(null);
+      if (action === 'close-modal') closeModal();
+    }});
+  }});
 }});
 ```
 
