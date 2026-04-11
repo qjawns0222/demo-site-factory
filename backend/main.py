@@ -537,7 +537,7 @@ async def _build_preview_html(session_id: str, domain: str, user_requirements: s
 ---
 """
 
-    prompt = f"""You are a senior frontend developer. Generate a single-file interactive HTML demo for "{domain}" service.
+    prompt = f"""You are a senior frontend engineer at a top-tier SaaS company (think Vercel, Linear, Notion). Your specialty is building beautiful, fully-interactive single-file HTML demos that look indistinguishable from real products. Generate a single-file interactive HTML demo for "{domain}" service.
 {extra_req_block}
 ## Service Specification
 
@@ -545,9 +545,28 @@ async def _build_preview_html(session_id: str, domain: str, user_requirements: s
 
 ---
 
-## STRICT CODE STRUCTURE (follow exactly)
+## LAYOUT SELECTION — Choose the best fit for "{domain}"
 
-Your output MUST follow this JavaScript structure inside <script> tag:
+First, analyze the domain and pick ONE layout archetype that makes the most sense for real users of this service. Do NOT default to a generic dashboard.
+
+**Available layout archetypes:**
+
+| Archetype | Best for | Key UI pattern |
+|-----------|----------|----------------|
+| **DASHBOARD** | Analytics, finance, operations | KPI cards + charts + data table |
+| **KANBAN** | Project management, tasks, CRM pipeline | Drag-able columns (Todo/In Progress/Done) |
+| **FEED** | Social, news, content, community | Infinite scroll cards + compose box |
+| **CALENDAR** | Scheduling, booking, events, HR leave | Month/week grid + event slots |
+| **GALLERY** | Portfolio, marketplace, e-commerce, media | Masonry/grid cards + filters sidebar |
+| **CHAT** | Messaging, support, collaboration | Left contact list + right message thread |
+| **TIMELINE** | Logistics, delivery, history, audit log | Vertical timeline + status steps |
+| **FORM-WIZARD** | Onboarding, survey, application, checkout | Multi-step form + progress bar |
+
+Pick the archetype that a real product designer would choose for "{domain}". State your choice as an HTML comment on line 2: `<!-- LAYOUT: KANBAN -->`.
+
+## REQUIRED CODE STRUCTURE
+
+Regardless of layout, your JavaScript MUST include these sections:
 
 ```
 // =============================================
@@ -555,59 +574,53 @@ Your output MUST follow this JavaScript structure inside <script> tag:
 // =============================================
 const DUMMY_DATA = [
   // {domain} specific realistic data
-  // Include: Korean names, real dates, amounts, status values, descriptions
-  // NO "항목1", "사용자A" placeholder names — use real-looking data
+  // Korean names, real dates, amounts, status values
+  // NO "항목1", "사용자A" — use real-looking data
 ];
 
 // =============================================
 // 2. APP STATE
 // =============================================
 const state = {{
-  currentView: 'dashboard',  // active tab/view name
-  currentItem: null,          // selected item for modal
+  currentView: 'main',   // adapt view names to your layout
+  currentItem: null,
   filteredData: [...DUMMY_DATA],
   searchQuery: '',
 }};
 
 // =============================================
-// 3. VIEW SWITCHER (tabs/menu)
+// 3. VIEW SWITCHER (adapt to your layout)
 // =============================================
 function showView(viewName) {{
-  // Hide ALL views
   document.querySelectorAll('.view-section').forEach(el => el.style.display = 'none');
-  // Show target view
   document.getElementById('view-' + viewName).style.display = 'block';
-  // Update nav active state
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  document.querySelector('[data-view="' + viewName + '"]').classList.add('active');
+  const navItem = document.querySelector('[data-view="' + viewName + '"]');
+  if (navItem) navItem.classList.add('active');
   state.currentView = viewName;
 }}
 
 // =============================================
-// 4. MODAL FUNCTIONS (always open/close pair)
+// 4. MODAL (detail view or action panel)
 // =============================================
 function openModal(item) {{
   state.currentItem = item;
-  // Populate modal content with item data
-  const modal = document.getElementById('detail-modal');
-  modal.style.display = 'flex';
+  document.getElementById('detail-modal').style.display = 'flex';
 }}
-
 function closeModal() {{
   document.getElementById('detail-modal').style.display = 'none';
   state.currentItem = null;
 }}
 
 // =============================================
-// 5. RENDER FUNCTION (called on load + data change)
+// 5. RENDER (layout-specific — implement fully)
 // =============================================
-function renderList(data) {{
-  const container = document.getElementById('list-container');
-  container.innerHTML = data.map(item => `
-    <div class="item-card" onclick="openModal(${{JSON.stringify(item).replace(/"/g, '&quot;')}})">
-      <!-- card content using item fields -->
-    </div>
-  `).join('');
+function renderContent(data) {{
+  // implement based on chosen archetype
+  // KANBAN: render cards into columns
+  // FEED: render post cards
+  // CALENDAR: render event slots
+  // etc.
 }}
 
 // =============================================
@@ -618,29 +631,25 @@ function handleSearch(query) {{
   state.filteredData = DUMMY_DATA.filter(item =>
     Object.values(item).some(v => String(v).toLowerCase().includes(query.toLowerCase()))
   );
-  renderList(state.filteredData);
+  renderContent(state.filteredData);
 }}
 
 // =============================================
-// 7. FORM SUBMIT (add to list)
+// 7. FORM SUBMIT
 // =============================================
 function handleFormSubmit(e) {{
   e.preventDefault();
-  const formData = new FormData(e.target);
-  const newItem = {{
-    id: Date.now(),
-    // extract fields from formData
-  }};
+  const newItem = {{ id: Date.now(), /* extract fields */ }};
   DUMMY_DATA.unshift(newItem);
   state.filteredData = [...DUMMY_DATA];
-  renderList(state.filteredData);
+  renderContent(state.filteredData);
   e.target.reset();
   showToast('성공적으로 등록되었습니다.');
   closeModal();
 }}
 
 // =============================================
-// 8. TOAST NOTIFICATION
+// 8. TOAST
 // =============================================
 function showToast(message) {{
   const toast = document.getElementById('toast');
@@ -650,41 +659,45 @@ function showToast(message) {{
 }}
 
 // =============================================
-// 9. INIT (runs on page load)
+// 9. INIT
 // =============================================
 document.addEventListener('DOMContentLoaded', () => {{
-  renderList(DUMMY_DATA);  // MUST render data immediately
-  showView('dashboard');   // show default view
+  renderContent(DUMMY_DATA);
 
-  // Wire up search input
-  document.getElementById('search-input').addEventListener('input', e => handleSearch(e.target.value));
+  const searchEl = document.getElementById('search-input');
+  if (searchEl) searchEl.addEventListener('input', e => handleSearch(e.target.value));
 
-  // Wire up form
   const form = document.getElementById('add-form');
   if (form) form.addEventListener('submit', handleFormSubmit);
 
-  // Close modal on overlay click
-  document.getElementById('detail-modal').addEventListener('click', e => {{
-    if (e.target === e.currentTarget) closeModal();
-  }});
+  const modal = document.getElementById('detail-modal');
+  if (modal) modal.addEventListener('click', e => {{ if (e.target === e.currentTarget) closeModal(); }});
 }});
 ```
 
 ## REQUIRED HTML ELEMENTS
 
-Your HTML MUST include these elements with exact IDs:
-- `id="list-container"` — main data list/grid container (never empty on load)
-- `id="detail-modal"` — modal dialog (initial style="display:none")
-- `id="search-input"` — search text input
-- `id="add-form"` — form for adding new items
-- `id="toast"` — toast notification (initial style="display:none")
-- `.view-section` class on each tab view div
-- `.nav-item` class + `data-view="..."` attribute on each nav button
-- Modal must have: `<button onclick="closeModal()">×</button>`
+Your HTML MUST always include:
+- `id="detail-modal"` — modal/panel (initial `style="display:none"`)
+- `id="toast"` — toast notification (initial `style="display:none"`)
+- `id="search-input"` — search input (can be in navbar or sidebar)
+- `id="add-form"` — form for new item creation
+- `.view-section` + `.nav-item[data-view]` — if using multi-view navigation
+- Modal close: `<button onclick="closeModal()">×</button>`
+
+Layout-specific required elements:
+- KANBAN: `id="col-todo"`, `id="col-inprogress"`, `id="col-done"`
+- FEED: `id="feed-container"`
+- CALENDAR: `id="calendar-grid"`
+- GALLERY: `id="gallery-container"`
+- CHAT: `id="message-thread"`, `id="contact-list"`
+- TIMELINE: `id="timeline-container"`
+- DASHBOARD: `id="list-container"`, KPI cards with real numbers
+- FORM-WIZARD: `id="wizard-steps"`, progress indicator
 
 ## REQUIRED SELECT ELEMENTS
 
-Every `<select>` must have minimum 3 real `<option>` values (no empty placeholder-only selects):
+Every `<select>` must have minimum 3 real `<option>` values:
 ```html
 <select name="category">
   <option value="">카테고리 선택</option>
@@ -696,13 +709,73 @@ Every `<select>` must have minimum 3 real `<option>` values (no empty placeholde
 
 ## DESIGN REQUIREMENTS
 
-- Use a consistent dark OR light theme (pick one, apply everywhere)
-- Tailwind CSS via CDN for styling
-- Font Awesome via CDN for icons
+### Visual Style — Dark SaaS (Vercel/Linear quality)
+- Use the CSS variables defined below for ALL colors — no hardcoded hex values in HTML/CSS
+- Accent color: pick ONE that fits the domain character (finance→indigo, health→emerald, logistics→amber, social→violet, alerts→rose)
+- Use `var(--accent)` ONLY for: active nav indicator, primary button, focus ring, status badges — not as background fills
+
+### Typography
+- Import Inter from Google Fonts: `<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">`
+- Apply globally: `font-family: 'Inter', -apple-system, sans-serif;`
+- Headings: `font-weight: 600`, body: `font-weight: 400`
+- Use numeric font-size scale: 12px labels, 14px body, 16px subheadings, 20-24px headings
+
+### Layout — App Shell
+- Full-height layout: `height: 100vh; display: flex; flex-direction: column; overflow: hidden;`
+- Top navbar: `height: 56px`, logo left, actions right, `border-bottom: 1px solid var(--border)`
+- Left sidebar: `width: 220px`, collapsible nav items with icons
+- Main content area: `flex: 1; overflow-y: auto; padding: 24px;`
+- Content max-width: `1200px; margin: 0 auto;`
+
+### Component Quality
+- Cards: `border-radius: 8px; border: 1px solid var(--border); background: var(--surface); padding: 20px;`
+- Metric cards (KPI): large number `font-size: 28px; font-weight: 700; color: var(--text)`, label below in `var(--text-muted)`, trend badge (↑ +12%) in green/red
+- Tables: zebra rows `var(--surface)` / `var(--bg)`, sticky header, row hover `var(--surface-2)`
+- Buttons: primary `background: var(--accent); color: #fff; border-radius: 6px; padding: 8px 16px; font-weight: 500; border: none`
+          secondary `background: transparent; border: 1px solid var(--border-hover); color: var(--text-muted)`
+- Badges/tags: `border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: 500`
+- Nav items: icon + label, active state `background: var(--surface-2); border-left: 2px solid var(--accent); color: var(--text)`
+- Input fields: `background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: var(--text)`
+              focus: `border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-subtle)`
+
+### Micro-interactions
+- All interactive elements: `transition: all 0.15s ease`
+- Button hover: `filter: brightness(1.15); cursor: pointer`
+- Row hover: `background: var(--surface-2)`
+- Nav hover: `background: var(--surface-2); color: var(--text)`
+- Modal backdrop: `background: rgba(0,0,0,0.75)`, card `border-radius: 12px; border: 1px solid var(--border)`
+- Toast: fixed bottom-right, `background: var(--surface); border: 1px solid var(--border); color: var(--text)`, slide-up keyframe animation
+
+### Do NOT
+- No default browser styles (reset everything)
+- No Comic Sans, Arial, or system-ui as primary font
+- No flat single-color backgrounds for entire page
+- No unstyled `<select>` or `<input>` — style them all
+- No missing hover states
+- No Lorem ipsum — all text must be domain-specific Korean
+
+### CDN Resources
+- **DO NOT use Tailwind CSS** — use plain CSS only (avoids class/inline-style conflicts)
+- Font Awesome 6: `<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">`
+- Inter font: Google Fonts (above)
 - All UI text in Korean
-- Minimum 3 distinct tab views with real content in each
-- Hover/focus states on all interactive elements
-- Responsive layout (mobile-friendly)
+
+### CSS Variables — define these in `:root` and use them throughout
+```css
+:root {{
+  --bg: #0a0a0a;
+  --surface: #111111;
+  --surface-2: #1a1a1a;
+  --border: #2a2a2a;
+  --border-hover: #3a3a3a;
+  --text: #ffffff;
+  --text-muted: #a1a1aa;
+  --text-dim: #71717a;
+  --accent: /* pick ONE: #6366f1 or #8b5cf6 or #10b981 or #f59e0b or #f43f5e based on domain */;
+  --accent-subtle: /* accent color at 15% opacity */;
+}}
+```
+Use `var(--accent)` everywhere instead of hardcoded accent color.
 
 ## OUTPUT FORMAT
 
@@ -755,7 +828,8 @@ async def _generate_and_cache_preview(session_id: str, user_requirements: str = 
         logger.error(f"[Preview] Generation timed out for {session_id}")
         await redis_client.set(status_key, "error", ex=300)
     except Exception as e:
-        logger.error(f"[Preview] Background generation failed for {session_id}: {e}")
+        import traceback
+        logger.error(f"[Preview] Background generation failed for {session_id}: {e}\n{traceback.format_exc()}")
         await redis_client.set(status_key, "error", ex=300)
 
 

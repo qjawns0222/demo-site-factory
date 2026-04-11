@@ -6,7 +6,7 @@ services:
       context: ./backend
     container_name: demo_backend
     ports:
-      - "8000:8000"
+      - "8500:8000"
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
@@ -42,7 +42,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8500
     volumes:
       - ./frontend:/app
       - /app/node_modules
