@@ -1026,32 +1026,95 @@ async def _get_plan_context(session_id: str) -> tuple[str, str]:
 
 @app.post("/api/plan/pages")
 async def get_plan_pages(payload: PlanPagesRequest):
-    """워크플로우 컨텍스트를 분석해 기획서 페이지 목록을 JSON으로 반환"""
+    """two-pass 방식으로 페이지 목록 생성:
+    1차: 사용자 유형 + 핵심 도메인 추출
+    2차: 도메인별 전체 화면 목록 생성
+    """
     domain, context = await _get_plan_context(payload.session_id)
 
     if DUMMY_MODE:
         return {"pages": [
+            {"name": "로그인", "description": "이메일/비밀번호로 로그인"},
+            {"name": "회원가입", "description": "신규 계정 생성"},
+            {"name": "비밀번호 찾기", "description": "이메일로 비밀번호 재설정 링크 발송"},
             {"name": "메인 홈", "description": "서비스 진입점, 핵심 기능 소개"},
-            {"name": "대시보드", "description": "주요 지표 및 현황 요약"},
-            {"name": "목록 페이지", "description": "전체 항목 조회 및 필터링"},
-            {"name": "상세 페이지", "description": "개별 항목 상세 정보"},
-            {"name": "설정 페이지", "description": "사용자 환경 설정"},
+            {"name": "목록 조회", "description": "전체 항목 조회 및 필터링"},
+            {"name": "상세 조회", "description": "개별 항목 상세 정보 확인"},
+            {"name": "항목 등록", "description": "새 항목 작성 및 저장"},
+            {"name": "항목 수정", "description": "기존 항목 내용 편집"},
+            {"name": "항목 삭제 확인", "description": "삭제 전 확인 모달"},
+            {"name": "프로필 조회", "description": "내 계정 정보 확인"},
+            {"name": "프로필 수정", "description": "닉네임, 사진 등 계정 정보 수정"},
+            {"name": "비밀번호 변경", "description": "현재 비밀번호 확인 후 새 비밀번호로 변경"},
+            {"name": "회원 탈퇴", "description": "계정 영구 삭제 확인 및 처리"},
+            {"name": "관리자 대시보드", "description": "전체 서비스 현황 및 주요 지표 확인"},
+            {"name": "관리자 사용자 목록", "description": "전체 회원 목록 조회 및 검색"},
+            {"name": "관리자 사용자 상세", "description": "특정 회원 정보 조회 및 제재 처리"},
+            {"name": "관리자 콘텐츠 목록", "description": "전체 콘텐츠 조회 및 관리"},
         ]}
 
-    prompt = f"""당신은 서비스 기획자입니다. 아래 "{domain}" 서비스 설계 컨텍스트를 분석하여 기획서에 포함될 페이지 목록을 JSON으로 반환하세요.
+    # ── 1차 호출: 사용자 유형 + 핵심 도메인 파악 ──────────────────────────────
+    pass1_prompt = f"""당신은 서비스 기획자입니다. 아래 "{domain}" 서비스 설계 컨텍스트를 읽고 두 가지를 JSON으로 반환하세요.
 
 ## 서비스 설계 컨텍스트
 {context}
 
-## 지시사항
-- 이 서비스에 실제로 필요한 주요 화면(페이지) 목록을 추출하세요.
-- 개발자용 상세 페이지(API 문서, 에러 페이지 등)는 제외하세요.
-- 각 페이지는 name(페이지명)과 description(한 줄 설명)을 포함하세요.
-- 반드시 JSON만 반환: {{"pages": [{{"name": "페이지명", "description": "설명"}}]}}
-- 최소 4개, 최대 10개 페이지
+## 추출할 내용
+
+1. **user_types**: 이 서비스를 사용하는 모든 사용자 유형
+   - 예: ["비로그인 사용자", "일반 회원", "판매자", "관리자(Admin)"]
+
+2. **domains**: 이 서비스에서 데이터를 생성/조회/수정/삭제하는 모든 핵심 도메인(엔티티)
+   - 예: ["상품", "주문", "리뷰", "쿠폰", "공지사항"]
+   - 인증(로그인/회원가입)과 사용자 계정(프로필)은 항상 포함하세요.
+   - 관리자가 있다면 관리자가 관리하는 도메인도 포함하세요.
+
+반드시 JSON만 반환: {{"user_types": ["..."], "domains": ["..."]}}
 """
 
-    result = await safe_generate_json(prompt)
+    pass1 = await safe_generate_json(pass1_prompt)
+    user_types = pass1.get("user_types", [])
+    domains = pass1.get("domains", [])
+
+    # 1차 실패 시 폴백: 기본값으로 진행
+    if not user_types:
+        user_types = ["비로그인 사용자", "일반 회원", "관리자"]
+    if not domains:
+        logger.warning(f"[plan/pages] pass1 domain extraction failed for session {payload.session_id}, falling back")
+        raise HTTPException(status_code=500, detail="서비스 도메인 분석 실패. 워크플로우 단계를 더 진행한 후 시도해주세요.")
+
+    user_types_str = "\n".join(f"- {u}" for u in user_types)
+    domains_str = "\n".join(f"- {d}" for d in domains)
+
+    # ── 2차 호출: 도메인별 전체 화면 목록 생성 ────────────────────────────────
+    pass2_prompt = f"""당신은 서비스 기획자입니다. 아래 분석된 "{domain}" 서비스의 사용자 유형과 도메인을 바탕으로 구현해야 할 모든 화면 목록을 만드세요.
+
+## 서비스 설계 컨텍스트 (참고)
+{context[:2000]}
+
+## 사용자 유형
+{user_types_str}
+
+## 핵심 도메인
+{domains_str}
+
+## 화면 생성 규칙
+
+각 도메인에 대해 다음을 확인하세요:
+- 인증 도메인: 로그인 / 회원가입 / 비밀번호 찾기 / 비밀번호 재설정
+- 사용자 계정 도메인: 프로필 조회 / 프로필 수정 / 비밀번호 변경 / 회원 탈퇴
+- 일반 도메인: 목록 / 상세 / 등록 / 수정 / 삭제 확인 (해당되는 것만)
+- 관리자 도메인: 관리자 대시보드 + 각 관리 도메인별 목록/상세/처리 화면
+
+화면 이름 규칙:
+- 기능 단위 하나씩 (금지: "마이페이지", "상품관리" / 허용: "상품 목록", "상품 등록")
+- description은 이 화면에서 사용자가 할 수 있는 핵심 행동 1줄
+- 서비스 컨텍스트에 있는 도메인 특유의 용어와 기능을 반영하세요
+
+반드시 JSON만 반환: {{"pages": [{{"name": "화면명", "description": "설명"}}]}}
+"""
+
+    result = await safe_generate_json(pass2_prompt)
     pages = result.get("pages", [])
     if not isinstance(pages, list):
         pages = []
@@ -1068,9 +1131,9 @@ async def revise_plan_pages(payload: PlanPagesReviseRequest):
 
     current_pages_str = "\n".join([f"- {p['name']}: {p.get('description', '')}" for p in payload.pages])
 
-    prompt = f"""당신은 서비스 기획자입니다. 아래 현재 페이지 목록을 사용자 코멘트에 맞게 수정하여 JSON으로 반환하세요.
+    prompt = f"""당신은 서비스 기획자입니다. 아래 현재 화면 목록을 사용자 코멘트에 맞게 수정하여 JSON으로 반환하세요.
 
-## 현재 페이지 목록
+## 현재 화면 목록
 {current_pages_str}
 
 ## 사용자 코멘트
@@ -1081,7 +1144,10 @@ async def revise_plan_pages(payload: PlanPagesReviseRequest):
 
 ## 지시사항
 - 코멘트를 최우선으로 반영하세요.
-- 반드시 JSON만 반환: {{"pages": [{{"name": "페이지명", "description": "설명"}}]}}
+- 화면은 **기능 단위** 하나씩입니다. 메뉴 묶음("마이페이지", "상품관리" 등)은 기능 단위로 분해하세요.
+- CRUD 도메인은 목록/상세/등록/수정/삭제확인 화면이 모두 있는지 확인하고 누락된 것은 추가하세요.
+- 코멘트로 추가 요청된 기능은 해당 도메인의 전체 CRUD 화면을 함께 추가하세요.
+- 반드시 JSON만 반환: {{"pages": [{{"name": "화면명", "description": "설명"}}]}}
 """
 
     result = await safe_generate_json(prompt)
