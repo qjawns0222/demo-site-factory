@@ -177,6 +177,7 @@ async def list_sessions():
     return {"sessions": sessions}
 
 STEP_NAMES = {
+    0: "서비스 전략 및 비즈니스 목표 정의",
     1: "기능 분석 및 정보 아키텍처",
     2: "UI/UX 비주얼 설계 및 레이아웃 명세",
     3: "에셋 목록 및 배치 전략",
@@ -1005,7 +1006,7 @@ async def _get_plan_context(session_id: str) -> tuple[str, str]:
 
     if context_history_str:
         history = json.loads(context_history_str)
-        target_steps = {1, 2, 4, 6}
+        target_steps = {0, 1, 2, 4, 6}
         for entry in history:
             step_id = int(entry.get("step_id", 0))
             if step_id in target_steps:
@@ -1015,7 +1016,7 @@ async def _get_plan_context(session_id: str) -> tuple[str, str]:
                 context_parts.append(f"=== {step_name} ===\n{summary}\n{context}".strip())
     else:
         # fallback: synthesize 없으면 step 원문 사용
-        for step_id in [1, 2, 4, 6]:
+        for step_id in [0, 1, 2, 4, 6]:
             content = await redis_client.get(f"session:{session_id}:step:{step_id}")
             if content:
                 step_name = STEP_NAMES.get(step_id, f"단계 {step_id}")
