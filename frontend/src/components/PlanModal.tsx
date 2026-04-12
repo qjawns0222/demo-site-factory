@@ -2,11 +2,7 @@
 
 import { useState } from 'react';
 import toast from 'react-hot-toast';
-
-interface Page {
-  name: string;
-  description: string;
-}
+import { useWorkflowStore, PlanPage } from '../store/useWorkflowStore';
 
 interface PlanModalProps {
   sessionId: string;
@@ -18,12 +14,25 @@ interface PlanModalProps {
 type ModalStep = 'idle' | 'loading_pages' | 'edit_pages' | 'generating' | 'done';
 
 export function PlanModal({ sessionId, domain, apiUrl, onClose }: PlanModalProps) {
-  const [step, setStep] = useState<ModalStep>('idle');
-  const [pages, setPages] = useState<Page[]>([]);
+  const { planPages, setPlanPages, planResult, setPlanResult, planResultMap, addPlanResultEntry, setPlanResultMap, generatedPageNames, addGeneratedPageName, clearGeneratedPageNames } = useWorkflowStore();
+  const [step, setStep] = useState<ModalStep>(() => {
+    if (planResult) return 'done';
+    if (planPages.length > 0) return 'edit_pages';
+    return 'idle';
+  });
+  const pages = planPages;
+  const setPages = (updater: PlanPage[] | ((prev: PlanPage[]) => PlanPage[])) => {
+    if (typeof updater === 'function') {
+      setPlanPages(updater(planPages));
+    } else {
+      setPlanPages(updater);
+    }
+  };
   const [comment, setComment] = useState('');
   const [newPageName, setNewPageName] = useState('');
   const [progress, setProgress] = useState({ current: 0, total: 0, currentName: '' });
-  const [markdownResult, setMarkdownResult] = useState('');
+  const markdownResult = planResult;
+  const setMarkdownResult = setPlanResult;
   const [generateMode, setGenerateMode] = useState<'all' | null>(null);
 
   const loadPages = async () => {
@@ -86,12 +95,18 @@ export function PlanModal({ sessionId, domain, apiUrl, onClose }: PlanModalProps
     setStep('generating');
     setProgress({ current: 0, total: pages.length, currentName: '' });
 
+    const skipped = pages.filter(p => generatedPageNames.includes(p.name));
+    const toGenerate = pages.filter(p => !generatedPageNames.includes(p.name));
+    if (skipped.length > 0) {
+      toast(`${skipped.length}개 페이지는 이미 생성됨 — 스킵`, { icon: '⏭' });
+    }
+
     let fullMarkdown = `# ${domain} 서비스 기획서\n\n`;
     fullMarkdown += `> 생성일: ${new Date().toLocaleDateString('ko-KR')}\n\n---\n\n`;
 
-    for (let i = 0; i < pages.length; i++) {
-      const page = pages[i];
-      setProgress({ current: i + 1, total: pages.length, currentName: page.name });
+    for (let i = 0; i < toGenerate.length; i++) {
+      const page = toGenerate[i];
+      setProgress({ current: i + 1, total: toGenerate.length, currentName: page.name });
 
       try {
         const res = await fetch(`${apiUrl}/api/plan/generate`, {
@@ -109,6 +124,8 @@ export function PlanModal({ sessionId, domain, apiUrl, onClose }: PlanModalProps
         }
         const data = await res.json();
         fullMarkdown += data.content + '\n\n---\n\n';
+        addGeneratedPageName(page.name);
+        addPlanResultEntry(page.name, data.content);
       } catch (e: unknown) {
         toast.error(e instanceof Error ? e.message : `${page.name} 생성 실패`);
         fullMarkdown += `## ${page.name}\n\n> 생성 실패\n\n---\n\n`;
@@ -119,7 +136,7 @@ export function PlanModal({ sessionId, domain, apiUrl, onClose }: PlanModalProps
     setStep('done');
   };
 
-  const generateSingle = async (page: Page) => {
+  const generateSingle = async (page: PlanPage) => {
     setGenerateMode(null);
     setStep('generating');
     setProgress({ current: 1, total: 1, currentName: page.name });
@@ -141,6 +158,8 @@ export function PlanModal({ sessionId, domain, apiUrl, onClose }: PlanModalProps
       const data = await res.json();
       const md = `# ${domain} — ${page.name} 기획서\n\n---\n\n${data.content}`;
       setMarkdownResult(md);
+      addGeneratedPageName(page.name);
+      addPlanResultEntry(page.name, md);
       setStep('done');
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : '생성 실패');
@@ -211,21 +230,35 @@ export function PlanModal({ sessionId, domain, apiUrl, onClose }: PlanModalProps
 
               {/* 페이지 목록 */}
               <div className="flex flex-col gap-2">
-                {pages.map((page, i) => (
-                  <div key={i} className="flex items-center gap-3 bg-neutral-800 rounded-lg px-4 py-3">
+                {pages.map((page, i) => {
+                  const isDone = generatedPageNames.includes(page.name);
+                  return (
+                  <div key={i} className={`flex items-center gap-3 rounded-lg px-4 py-3 ${isDone ? 'bg-emerald-950/40 border border-emerald-800/40' : 'bg-neutral-800'}`}>
                     <span className="text-neutral-500 text-xs w-5 shrink-0">{i + 1}</span>
                     <div className="flex-1 min-w-0">
-                      <div className="text-white text-sm font-medium">{page.name}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-white text-sm font-medium">{page.name}</span>
+                        {isDone && <span className="text-emerald-400 text-xs">✓ 생성됨</span>}
+                      </div>
                       {page.description && (
                         <div className="text-neutral-500 text-xs mt-0.5 truncate">{page.description}</div>
                       )}
                     </div>
+                    {isDone && (
+                      <button
+                        onClick={() => { setMarkdownResult(planResultMap[page.name] ?? ''); setStep('done'); }}
+                        className="text-xs shrink-0 px-2 py-1 rounded transition text-neutral-400 hover:text-white hover:bg-neutral-700"
+                        title="결과 보기"
+                      >
+                        보기
+                      </button>
+                    )}
                     <button
                       onClick={() => generateSingle(page)}
-                      className="text-indigo-400 hover:text-indigo-300 text-xs shrink-0 px-2 py-1 rounded hover:bg-indigo-900/30 transition"
+                      className={`text-xs shrink-0 px-2 py-1 rounded transition ${isDone ? 'text-emerald-500 hover:text-emerald-300 hover:bg-emerald-900/30' : 'text-indigo-400 hover:text-indigo-300 hover:bg-indigo-900/30'}`}
                       title="이 페이지만 생성"
                     >
-                      단독 생성
+                      {isDone ? '재생성' : '단독 생성'}
                     </button>
                     <button
                       onClick={() => deletePage(i)}
@@ -234,7 +267,8 @@ export function PlanModal({ sessionId, domain, apiUrl, onClose }: PlanModalProps
                       ✕
                     </button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* 페이지 추가 */}

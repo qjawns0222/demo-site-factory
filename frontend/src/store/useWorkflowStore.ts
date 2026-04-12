@@ -13,6 +13,11 @@ export type StatusBanner = {
   stepId?: number;
 };
 
+export type PlanPage = {
+  name: string;
+  description: string;
+};
+
 interface WorkflowState {
   domain: string;
   sessionId: string;
@@ -24,6 +29,10 @@ interface WorkflowState {
   isRunningAll: boolean;
   statusBanners: StatusBanner[];
   synthesizedContent: Map<number, string>;
+  planPages: PlanPage[];
+  planResult: string;
+  planResultMap: Record<string, string>;
+  generatedPageNames: string[];
 
   setDomain: (domain: string) => void;
   setSessionId: (id: string) => void;
@@ -38,6 +47,12 @@ interface WorkflowState {
   dismissBanner: (index: number) => void;
   clearBanners: () => void;
   markSynthesized: (id: number, content: string) => void;
+  setPlanPages: (pages: PlanPage[]) => void;
+  setPlanResult: (result: string) => void;
+  setPlanResultMap: (map: Record<string, string>) => void;
+  addPlanResultEntry: (name: string, content: string) => void;
+  addGeneratedPageName: (name: string) => void;
+  clearGeneratedPageNames: () => void;
   resetAll: () => void;
 }
 
@@ -52,6 +67,10 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   isRunningAll: false,
   statusBanners: [],
   synthesizedContent: new Map<number, string>(),
+  planPages: [],
+  planResult: '',
+  planResultMap: {},
+  generatedPageNames: [],
 
   setDomain: (domain) => set({ domain }),
   setSessionId: (id) => set({ sessionId: id }),
@@ -73,6 +92,18 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
     next.set(id, content);
     return { synthesizedContent: next };
   }),
+  setPlanPages: (pages) => set({ planPages: pages }),
+  setPlanResult: (result) => set({ planResult: result }),
+  setPlanResultMap: (map) => set({ planResultMap: map }),
+  addPlanResultEntry: (name, content) => set((state) => ({
+    planResultMap: { ...state.planResultMap, [name]: content },
+  })),
+  addGeneratedPageName: (name) => set((state) => ({
+    generatedPageNames: state.generatedPageNames.includes(name)
+      ? state.generatedPageNames
+      : [...state.generatedPageNames, name],
+  })),
+  clearGeneratedPageNames: () => set({ generatedPageNames: [] }),
   resetAll: () => set({
     steps: [],
     selectedStepId: null,
@@ -82,6 +113,10 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
     isRunningAll: false,
     statusBanners: [],
     synthesizedContent: new Map<number, string>(),
+    planPages: [],
+    planResult: '',
+    planResultMap: {},
+    generatedPageNames: [],
   }),
 }));
 

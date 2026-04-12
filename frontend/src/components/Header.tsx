@@ -27,6 +27,29 @@ export function Header() {
     }
   }, [sessionId, domain]);
 
+  // planPages가 바뀌면 localStorage에 저장
+  const { planPages, setPlanPages, planResult, setPlanResult, planResultMap, setPlanResultMap, generatedPageNames, addGeneratedPageName } = useWorkflowStore();
+  useEffect(() => {
+    if (sessionId) {
+      localStorage.setItem(`demo_plan_pages_${sessionId}`, JSON.stringify(planPages));
+    }
+  }, [planPages, sessionId]);
+  useEffect(() => {
+    if (sessionId) {
+      localStorage.setItem(`demo_plan_result_${sessionId}`, planResult);
+    }
+  }, [planResult, sessionId]);
+  useEffect(() => {
+    if (sessionId) {
+      localStorage.setItem(`demo_plan_generated_${sessionId}`, JSON.stringify(generatedPageNames));
+    }
+  }, [generatedPageNames, sessionId]);
+  useEffect(() => {
+    if (sessionId) {
+      localStorage.setItem(`demo_plan_result_map_${sessionId}`, JSON.stringify(planResultMap));
+    }
+  }, [planResultMap, sessionId]);
+
   // 페이지 로드 시 localStorage에서 세션 복구
   useEffect(() => {
     const savedId = localStorage.getItem('demo_session_id');
@@ -57,6 +80,26 @@ export function Header() {
         setSteps(restoredSteps);
         setDomain(savedDomain);
         setSessionId(savedId);
+
+        // planPages 복구
+        const savedPages = localStorage.getItem(`demo_plan_pages_${savedId}`);
+        if (savedPages) {
+          try { setPlanPages(JSON.parse(savedPages)); } catch { /* 무시 */ }
+        }
+        // planResult 복구
+        const savedResult = localStorage.getItem(`demo_plan_result_${savedId}`);
+        if (savedResult) setPlanResult(savedResult);
+        // generatedPageNames 복구
+        const savedGenerated = localStorage.getItem(`demo_plan_generated_${savedId}`);
+        if (savedGenerated) {
+          try { JSON.parse(savedGenerated).forEach((n: string) => addGeneratedPageName(n)); } catch { /* 무시 */ }
+        }
+        // planResultMap 복구
+        const savedResultMap = localStorage.getItem(`demo_plan_result_map_${savedId}`);
+        if (savedResultMap) {
+          try { setPlanResultMap(JSON.parse(savedResultMap)); } catch { /* 무시 */ }
+        }
+
         const doneCount = restoredSteps.filter((s: any) => s.status === 'DONE').length;
         if (doneCount > 0) {
           toast(`세션 복구됨: ${savedDomain} (${doneCount}단계 완료)`, { icon: '🔄' });
@@ -110,6 +153,10 @@ export function Header() {
     try {
       const res = await fetch(`${API_URL}/api/session/${sessionId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('API 오류');
+      localStorage.removeItem(`demo_plan_pages_${sessionId}`);
+      localStorage.removeItem(`demo_plan_result_${sessionId}`);
+      localStorage.removeItem(`demo_plan_generated_${sessionId}`);
+      localStorage.removeItem(`demo_plan_result_map_${sessionId}`);
       resetAll();
       localStorage.removeItem('demo_session_id');
       localStorage.removeItem('demo_domain');
@@ -201,6 +248,27 @@ export function Header() {
     setSessionId(sess.session_id);
     localStorage.setItem('demo_session_id', sess.session_id);
     localStorage.setItem('demo_domain', sess.domain);
+
+    // planPages 복구
+    const savedPages = localStorage.getItem(`demo_plan_pages_${sess.session_id}`);
+    if (savedPages) {
+      try { setPlanPages(JSON.parse(savedPages)); } catch { /* 무시 */ }
+    } else {
+      setPlanPages([]);
+    }
+    // planResult 복구
+    const savedResult = localStorage.getItem(`demo_plan_result_${sess.session_id}`);
+    setPlanResult(savedResult ?? '');
+    // generatedPageNames 복구
+    const savedGenerated = localStorage.getItem(`demo_plan_generated_${sess.session_id}`);
+    if (savedGenerated) {
+      try { JSON.parse(savedGenerated).forEach((n: string) => addGeneratedPageName(n)); } catch { /* 무시 */ }
+    }
+    // planResultMap 복구
+    const savedResultMap = localStorage.getItem(`demo_plan_result_map_${sess.session_id}`);
+    if (savedResultMap) {
+      try { setPlanResultMap(JSON.parse(savedResultMap)); } catch { /* 무시 */ }
+    }
   };
 
   const handleExportZip = () => {
@@ -294,6 +362,10 @@ export function Header() {
               <button
                 onClick={() => {
                   // 현재 세션은 히스토리에 남기고 UI만 초기화
+                  localStorage.removeItem(`demo_plan_pages_${sessionId}`);
+                  localStorage.removeItem(`demo_plan_result_${sessionId}`);
+                  localStorage.removeItem(`demo_plan_generated_${sessionId}`);
+                  localStorage.removeItem(`demo_plan_result_map_${sessionId}`);
                   resetAll();
                   localStorage.removeItem('demo_session_id');
                   localStorage.removeItem('demo_domain');
